@@ -1,0 +1,1248 @@
+"""
+Semaglutide LAI · Competitor Intelligence Tracker
+Built from primary sources: ADA posters, company press releases, IR decks, investor news.
+All data points annotated with evidence level: ✓ Confirmed | ○ Company claim | — Not found
+"""
+
+import streamlit as st
+import pandas as pd
+import plotly.graph_objects as go
+import plotly.express as px
+
+st.set_page_config(
+    page_title="Semaglutide LAI · Competitor Intelligence",
+    page_icon="💊",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STYLES
+# ─────────────────────────────────────────────────────────────────────────────
+st.markdown("""
+<style>
+/* typography */
+h1 { font-size: 1.6rem !important; font-weight: 700 !important; }
+h2 { font-size: 1.1rem !important; font-weight: 600 !important; color: #1e293b !important; }
+.sub { font-size: 0.85rem; color: #64748b; margin-top: -0.6rem; margin-bottom: 1.2rem; }
+/* metric tiles */
+.metric-box { background: #f8fafc; border: 1px solid #e2e8f0;
+              border-radius: 10px; padding: 0.9rem 1rem; text-align: center; }
+.metric-num { font-size: 2rem; font-weight: 700; color: #0f172a; line-height: 1.1; }
+.metric-lbl { font-size: 0.72rem; color: #64748b; text-transform: uppercase;
+              letter-spacing: 0.07em; margin-top: 2px; }
+/* tech badges */
+.badge { display:inline-block; padding: 2px 9px; border-radius: 4px;
+         font-size: 0.72rem; font-weight: 600; white-space: nowrap; }
+.b-plga     { background:#dbeafe; color:#1e40af; }
+.b-lipid    { background:#ccfbf1; color:#0f766e; }
+.b-smol     { background:#dcfce7; color:#166534; }
+.b-mol      { background:#ede9fe; color:#5b21b6; }
+.b-prodrug  { background:#fef3c7; color:#92400e; }
+.b-implant  { background:#fce7f3; color:#9d174d; }
+.b-unknown  { background:#f1f5f9; color:#475569; }
+/* stage badges */
+.s-preclin  { background:#f1f5f9; color:#475569; }
+.s-ind      { background:#fef9c3; color:#854d0e; }
+.s-ph1      { background:#dbeafe; color:#1e40af; }
+.s-ph2      { background:#ede9fe; color:#5b21b6; }
+.s-ph3      { background:#dcfce7; color:#166534; }
+.s-unknown  { background:#f1f5f9; color:#94a3b8; }
+/* geography */
+.geo-kr  { background:#fff1f2; color:#9f1239; }
+.geo-gl  { background:#f0fdf4; color:#15803d; }
+.geo-cn  { background:#fff7ed; color:#9a3412; }
+/* evidence indicators */
+.ev-confirmed { color: #16a34a; font-weight: 600; }
+.ev-claim     { color: #d97706; font-weight: 600; }
+.ev-inferred  { color: #0891b2; font-weight: 600; }
+.ev-none      { color: #94a3b8; }
+/* news tags */
+.tag { display:inline-block; padding:1px 7px; border-radius:3px;
+       font-size:0.68rem; font-weight:600; margin-right:4px; }
+.t-clinical  { background:#dbeafe; color:#1e40af; }
+.t-partner   { background:#dcfce7; color:#166534; }
+.t-ind       { background:#fef3c7; color:#92400e; }
+.t-conf      { background:#ede9fe; color:#5b21b6; }
+.t-ip        { background:#fce7f3; color:#9d174d; }
+.t-mfg       { background:#ccfbf1; color:#0f766e; }
+.t-company   { background:#f1f5f9; color:#475569; }
+/* card */
+.card { background:#fff; border:1px solid #e2e8f0; border-radius:12px;
+        padding: 1rem 1.1rem; margin-bottom: 0.6rem; }
+.card-title { font-weight: 700; font-size: 1rem; margin: 0 0 2px; }
+.card-sub   { font-size: 0.8rem; color: #64748b; margin: 0; }
+.card-row   { display:flex; gap:6px; flex-wrap:wrap; margin: 6px 0; }
+/* data maturity */
+.mat-0 { background:#f1f5f9; color:#94a3b8; border-radius:4px; padding:3px 8px; font-size:0.75rem; }
+.mat-1 { background:#e0f2fe; color:#0369a1; border-radius:4px; padding:3px 8px; font-size:0.75rem; }
+.mat-2 { background:#bfdbfe; color:#1d4ed8; border-radius:4px; padding:3px 8px; font-size:0.75rem; }
+.mat-3 { background:#818cf8; color:#fff; border-radius:4px; padding:3px 8px; font-size:0.75rem; }
+.mat-4 { background:#4338ca; color:#fff; border-radius:4px; padding:3px 8px; font-size:0.75rem; }
+/* scope note */
+.scope-note { background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px;
+              padding: 0.6rem 0.9rem; font-size:0.82rem; color:#166534; margin-bottom:1rem; }
+/* tier2 table override */
+.tier2-table th { background: #f8fafc !important; font-size: 0.78rem !important; }
+.tier2-table td { font-size: 0.8rem !important; }
+</style>
+""", unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DATA
+# ─────────────────────────────────────────────────────────────────────────────
+COMPETITORS = [
+    {
+        "id": 0, "company": "Daewoong + Tionlab",
+        "product": "Quject®Sphere / CURE®",
+        "tech_type": "PLGA Microsphere Depot", "tech_cat": "depot_plga",
+        "molecule": "Semaglutide", "mechanism": "GLP-1RA",
+        "indication": "Obesity",
+        "dosing": "Monthly (target)", "dosing_confirmed": False,
+        "stage": "IND Filed", "stage_order": 2,
+        "geography": "Korean", "is_baseline": True,
+        "needle_gauge": "—", "needle_ev": "none",
+        "organic_solvent": "—", "solvent_ev": "none",
+        "burst_claim": "Suppressed", "burst_ev": "claim",
+        "titration": "—", "titration_ev": "none",
+        "reconstitution": "—", "recon_ev": "none",
+        "storage": "—", "storage_ev": "none",
+        "pk_maturity": 0,
+        "pk_desc": "No data published",
+        "efficacy": "No data published",
+        "gi_tolerability": "No data published",
+        "in_house_mfg": True,
+        "commercial_track": "Partial — Daewoong yes; Tionlab (startup) no",
+        "partnership": "Consortium: Daewoong + Tionlab + Daehan New Pharm + Dalim Biotech",
+        "trial_id": "IND filed MFDS Apr 2026",
+        "scope": ["semaglutide_depot", "all_lai", "full"],
+        "news": [
+            {"date": "2026-05-08", "headline": "IND filed with Korean MFDS; first patient dosing targeted within 2026",
+             "source": "Korea Herald", "url": "https://www.koreaherald.com/article/10733813", "tag": "IND Filing"},
+            {"date": "2026-05-08", "headline": "QJect Sphere (burst control) + CURE (uniform particles) combined for monthly semaglutide LAI",
+             "source": "Korea Biomed", "url": "https://www.koreabiomed.com/news/articleView.html?idxno=31574", "tag": "Partnership"},
+            {"date": "2026-05-08", "headline": "Four-party consortium model confirmed; parallel microneedle patch program (Daewoong Therapeutics) already in Phase 1",
+             "source": "약사공론", "url": "https://www.kpanews.co.kr/news/articleView.html?idxno=534518", "tag": "Company News"},
+        ],
+        "refs": [
+            ("Korea Herald partnership", "https://www.koreaherald.com/article/10733813"),
+            ("Korea Biomed pipeline", "https://www.koreabiomed.com/news/articleView.html?idxno=31574"),
+            ("약사공론 overview", "https://www.kpanews.co.kr/news/articleView.html?idxno=534518"),
+        ],
+    },
+    {
+        "id": 1, "company": "Peptron",
+        "product": "PT403 / SmartDepot™",
+        "tech_type": "PLGA Microsphere Depot", "tech_cat": "depot_plga",
+        "molecule": "Semaglutide", "mechanism": "GLP-1RA",
+        "indication": "Diabetes, Obesity",
+        "dosing": "Monthly Q4W–Q8W", "dosing_confirmed": False,
+        "stage": "Phase 1", "stage_order": 3,
+        "geography": "Korean", "is_baseline": False,
+        "needle_gauge": "27–30G", "needle_ev": "confirmed",
+        "organic_solvent": "None in final product", "solvent_ev": "claim",
+        "burst_claim": "No initial burst; lag <3 days", "burst_ev": "claim",
+        "titration": "Not required", "titration_ev": "claim",
+        "reconstitution": "Required (<10 sec, stays suspended)", "recon_ev": "confirmed",
+        "storage": "—", "storage_ev": "none",
+        "pk_maturity": 2,
+        "pk_desc": "Mouse preclinical + 16 healthy adults Phase 1 safety (ADA 2026)",
+        "efficacy": "~30% weight loss in mouse at 4 wk; no nausea/vomiting vs weekly sema (Phase 1, 16 subjects)",
+        "gi_tolerability": "Favorable vs. weekly semaglutide (ADA 2026, n=16)",
+        "in_house_mfg": True,
+        "commercial_track": "LEUPONE™ leuprolide SmartDepot — MFDS approval pending 2026",
+        "partnership": "Eli Lilly platform tech evaluation agreement (Oct 2024)",
+        "trial_id": "IND filed Korea ~Apr 2026",
+        "scope": ["semaglutide_depot", "all_lai", "full"],
+        "news": [
+            {"date": "2026-06-08", "headline": "ADA 2026: favorable GI tolerability vs. weekly sema in 16 adults; ~30% mouse weight loss at 4 wk",
+             "source": "Hankyung", "url": "https://www.hankyung.com/article/202606082409i", "tag": "Clinical Update"},
+            {"date": "2025-06-05", "headline": "Eli Lilly–Camurus deal does not conflict with Peptron SmartDepot per Peptron; Lilly-Peptron agreement intact",
+             "source": "Korea Biomed", "url": "https://www.koreabiomed.com/news/articleView.html?idxno=27792", "tag": "Partnership"},
+            {"date": "2025-01-23", "headline": "Australian patent granted (valid Jun 2042); confirms SmartDepot IP estate for PT403",
+             "source": "Korea Biomed", "url": "https://www.koreabiomed.com/news/articleView.html?idxno=26427", "tag": "IP/Patent"},
+            {"date": "2024-12-22", "headline": "₩65B cGMP plant approved (Osong); ~10M vials/yr capacity; completion mid-2026",
+             "source": "Hankyung", "url": "https://www.hankyung.com/article/2024122226161", "tag": "Manufacturing"},
+        ],
+        "refs": [
+            ("Peptron SmartDepot tech page", "http://www.peptron.com/ds2_2_1.html"),
+            ("ADA 2023 poster 781-P", "https://diabetesjournals.org/diabetes/article/72/Supplement_1/781-P/149936/"),
+            ("Hankyung ADA 2026", "https://www.hankyung.com/article/202606082409i"),
+            ("AU patent — Korea Biomed", "https://www.koreabiomed.com/news/articleView.html?idxno=26427"),
+        ],
+    },
+    {
+        "id": 2, "company": "InventageLab",
+        "product": "IVL3021 / IVL-DrugFluidics®",
+        "tech_type": "PLGA Microsphere Depot", "tech_cat": "depot_plga",
+        "molecule": "Semaglutide", "mechanism": "GLP-1RA",
+        "indication": "Obesity, Diabetes",
+        "dosing": "Monthly (target)", "dosing_confirmed": False,
+        "stage": "Preclinical", "stage_order": 1,
+        "geography": "Korean", "is_baseline": False,
+        "needle_gauge": "—", "needle_ev": "none",
+        "organic_solvent": "Trace (~232 ppm residual — platform data)", "solvent_ev": "confirmed",
+        "burst_claim": "No initial burst (platform claim)", "burst_ev": "claim",
+        "titration": "—", "titration_ev": "none",
+        "reconstitution": "Required (microsphere format)", "recon_ev": "inferred",
+        "storage": "—", "storage_ev": "none",
+        "pk_maturity": 1,
+        "pk_desc": "Mini-pig: stable 28-day drug release (ADA 2024 poster 805-P)",
+        "efficacy": "Not available (preclinical only)",
+        "gi_tolerability": "CEO claim: microfluidic uniform particles 'significantly reduce GI side effects'",
+        "in_house_mfg": True,
+        "commercial_track": "IVL3004 Ph1 complete; IVL3003 AU Phase 1/2 approved; IVL3013 licensed",
+        "partnership": "Yuhan Corp (late-stage dev + commercialization + L/I option); Boehringer Ingelheim (peptide LAI)",
+        "trial_id": "IND to MFDS targeted — filing not yet confirmed",
+        "scope": ["semaglutide_depot", "all_lai", "full"],
+        "news": [
+            {"date": "2024-06-01", "headline": "ADA 2024 poster 805-P: semaglutide-releasing long-acting microsphere shows stable 28-day release in mini-pig",
+             "source": "ADA 2024", "url": "https://diabetesjournals.org/diabetes/article/73/Supplement_1/805-P/155081/", "tag": "Conference Data"},
+            {"date": "2024-01-01", "headline": "Yuhan Corp co-development deal: Yuhan owns late-stage dev, commercialization rights, and license-in option for IVL3021",
+             "source": "Biospectator", "url": "https://m.biospectator.com/view/news_view.php?varAtcId=20747", "tag": "Partnership"},
+            {"date": "2024-06-01", "headline": "CEO: microfluidic platform controls burst release; claims GI side effects 'significantly reduced' vs conventional microspheres",
+             "source": "Edaily", "url": "https://pharm.edaily.co.kr/News/Read?newsId=02102486639019136", "tag": "Company News"},
+        ],
+        "refs": [
+            ("ADA 2024 poster 805-P", "https://diabetesjournals.org/diabetes/article/73/Supplement_1/805-P/155081/"),
+            ("Biospectator Yuhan deal", "https://m.biospectator.com/view/news_view.php?varAtcId=20747"),
+            ("InventageLab website", "https://inventagelab.com/en"),
+        ],
+    },
+    {
+        "id": 3, "company": "Pfizer / Metsera",
+        "product": "Berobenatide (PF'3944)",
+        "tech_type": "Molecular Engineering (non-depot)", "tech_cat": "molecular_eng",
+        "molecule": "Proprietary GLP-1RA peptide", "mechanism": "GLP-1RA",
+        "indication": "Obesity (T2D planned)",
+        "dosing": "Weekly lead-in → monthly maintenance", "dosing_confirmed": True,
+        "stage": "Phase 3", "stage_order": 5,
+        "geography": "Global", "is_baseline": False,
+        "needle_gauge": "Standard SC", "needle_ev": "none",
+        "organic_solvent": "N/A (solution)", "solvent_ev": "confirmed",
+        "burst_claim": "N/A (non-depot)", "burst_ev": "na",
+        "titration": "Required — weekly lead-in before monthly", "titration_ev": "confirmed",
+        "reconstitution": "No (prefilled solution)", "recon_ev": "confirmed",
+        "storage": "—", "storage_ev": "none",
+        "pk_maturity": 4,
+        "pk_desc": "Phase 2b (VESPER-3): weight loss continued after weekly→monthly switch; no plateau at 28 wk",
+        "efficacy": "Phase 2b: statistically significant weight reduction at 28 wk; details in Pfizer PR (Feb 2026)",
+        "gi_tolerability": "Favorable: low GI AEs despite rapid dose escalation (Phase 2b)",
+        "in_house_mfg": True,
+        "commercial_track": "Multiple FDA-approved products; $7B Metsera acquisition (Nov 2025)",
+        "partnership": "$7B Metsera acquisition closed Nov 2025",
+        "trial_id": "VESPER-6 (NCT07595549) Phase 3 recruiting",
+        "scope": ["all_lai", "full"],
+        "news": [
+            {"date": "2026-02-03", "headline": "VESPER-3 Ph2b positive: weight loss continued after weekly→monthly switch; no plateau at 28 wk",
+             "source": "Pfizer", "url": "https://www.pfizer.com/news/press-release/press-release-detail/pfizers-ultra-long-acting-injectable-glp-1-ra-shows-robust", "tag": "Clinical Update"},
+            {"date": "2026-01-01", "headline": "10-trial Phase 3 VESPER program advancing; VESPER-6 (NCT07595549) monthly maintenance trial now recruiting",
+             "source": "TipRanks", "url": "https://www.tipranks.com/news/company-announcements/pfizer-steps-up-obesity-push-with-new-phase-3-berobenatide-trial", "tag": "Clinical Update"},
+            {"date": "2025-11-01", "headline": "$7 billion Metsera acquisition closed; 20+ obesity pipeline studies planned across VESPER program",
+             "source": "Managed Healthcare Exec", "url": "https://www.managedhealthcareexecutive.com/view/pivotal-trial-is-recruiting-for-monthly-glp-1-for-weight-loss-ada-2026", "tag": "Partnership"},
+        ],
+        "refs": [
+            ("Pfizer VESPER-3 press release (Feb 2026)", "https://www.pfizer.com/news/press-release/press-release-detail/pfizers-ultra-long-acting-injectable-glp-1-ra-shows-robust"),
+            ("BioPharma Dive", "https://www.biopharmadive.com/news/pfizer-obesity-metsera-phase-2-results-GLP1-monthly-shot/811201/"),
+        ],
+    },
+    {
+        "id": 4, "company": "Novo Nordisk",
+        "product": "Zenagamtide (Amycretin)",
+        "tech_type": "Molecular Engineering (non-depot)", "tech_cat": "molecular_eng",
+        "molecule": "Proprietary GLP-1/Amylin dual agonist", "mechanism": "GLP-1 / Amylin dual agonist",
+        "indication": "Obesity, T2D",
+        "dosing": "Once-weekly SC + oral (not extended interval)", "dosing_confirmed": True,
+        "stage": "Phase 3", "stage_order": 5,
+        "geography": "Global", "is_baseline": False,
+        "needle_gauge": "Standard SC", "needle_ev": "none",
+        "organic_solvent": "N/A (solution)", "solvent_ev": "confirmed",
+        "burst_claim": "N/A (non-depot)", "burst_ev": "na",
+        "titration": "—", "titration_ev": "none",
+        "reconstitution": "No (prefilled solution)", "recon_ev": "confirmed",
+        "storage": "—", "storage_ev": "none",
+        "pk_maturity": 4,
+        "pk_desc": "Phase 2b complete — T2D: HbA1c −1.71pp, −14.6% weight at 40mg/36 wk",
+        "efficacy": "Phase 2b: −1.71pp HbA1c, −14.6% body weight at 36 wk (40mg dose, SC + oral forms)",
+        "gi_tolerability": "Does not delay gastric emptying (ECO 2026 poster claim)",
+        "in_house_mfg": True,
+        "commercial_track": "Ozempic, Wegovy, Rybelsus — blockbuster franchise; CagriSema Phase 3 complete",
+        "partnership": "Novo Nordisk internal; also partnered with Ascendis (TransCon GLP-1)",
+        "trial_id": "Phase 3 AMAZE starts H2 2026; data ~2028",
+        "scope": ["all_lai", "full"],
+        "news": [
+            {"date": "2026-06-08", "headline": "ADA 2026: Phase 2b — HbA1c −1.71pp, −14.6% weight at 40mg/36wk in T2D (oral + SC both effective)",
+             "source": "PR Newswire", "url": "https://www.prnewswire.com/news-releases/novo-nordisk-advances-cardiometabolic-pipeline-302783110.html", "tag": "Clinical Update"},
+            {"date": "2026-06-01", "headline": "Phase 3 AMAZE program starting H2 2026; data expected ~2028",
+             "source": "Annual Report 2025", "url": "https://annualreport.novonordisk.com/2025/strategic-aspirations/innovation-and-therapeutic-focus.html", "tag": "Clinical Update"},
+            {"date": "2026-05-01", "headline": "ECO 2026 poster: unimolecular GLP-1/amylin dual agonist; does not delay gastric emptying — differentiating claim",
+             "source": "Novo Science Hub", "url": "https://sciencehub.novonordisk.com/congresses/eco2026/gabe.html", "tag": "Conference Data"},
+        ],
+        "refs": [
+            ("PR Newswire ADA 2026", "https://www.prnewswire.com/news-releases/novo-nordisk-advances-cardiometabolic-pipeline-302783110.html"),
+            ("ECO 2026 poster", "https://sciencehub.novonordisk.com/congresses/eco2026/gabe.html"),
+            ("Novo Annual Report 2025", "https://annualreport.novonordisk.com/2025/strategic-aspirations/innovation-and-therapeutic-focus.html"),
+        ],
+    },
+    {
+        "id": 5, "company": "Camurus",
+        "product": "CAM2056 / FluidCrystal®",
+        "tech_type": "Lipid Liquid-Crystal Depot", "tech_cat": "depot_lipid",
+        "molecule": "Semaglutide", "mechanism": "GLP-1RA",
+        "indication": "Overweight, Obesity",
+        "dosing": "Monthly (2 biweekly initiation doses first)", "dosing_confirmed": True,
+        "stage": "Phase 1b Complete / Ph2 Planned", "stage_order": 3,
+        "geography": "Global", "is_baseline": False,
+        "needle_gauge": "22–23G (larger — viscous gel)", "needle_ev": "claim",
+        "organic_solvent": "~20% organic solvent required", "solvent_ev": "confirmed",
+        "burst_claim": "Not specified for CAM2056", "burst_ev": "none",
+        "titration": "Required — 2 biweekly doses before monthly", "titration_ev": "confirmed",
+        "reconstitution": "No — prefilled liquid, ready to inject", "recon_ev": "confirmed",
+        "storage": "Room temp 15–30°C (refrigeration as fallback)", "storage_ev": "confirmed",
+        "pk_maturity": 3,
+        "pk_desc": "Phase 1b (n=80): −9.3% wt vs −5.2% (weekly sema) at Day 85 (p=0.008); A1c Δ −0.32% (p<0.001)",
+        "efficacy": "Phase 1b: −9.3% weight (CAM2056 10mg) vs −5.2% (weekly Wegovy) at Day 85 (p=0.008)",
+        "gi_tolerability": "Consistent with weekly sema; highest initiation cohort had more AEs",
+        "in_house_mfg": False,
+        "commercial_track": "Brixadi® (buprenorphine, FDA 2023); CAM2029 (octreotide, EU+US) — 2 approved FluidCrystal products",
+        "partnership": "Eli Lilly $870M FluidCrystal incretins (GIP/GLP-1 + options, Jun 2025); CAM2056 itself Camurus-led",
+        "trial_id": "Ph1b complete Nov 2025; Ph2 planned H2 2026 (FDA feedback received)",
+        "scope": ["semaglutide_depot", "all_lai", "full"],
+        "news": [
+            {"date": "2025-11-10", "headline": "Phase 1b positive: monthly CAM2056 comparable to or exceeded weekly Wegovy in weight and A1c at Day 85",
+             "source": "Camurus", "url": "https://www.camurus.com/media/press-releases/2025/camurus-reports-positive-topline-results-for-cam2056-semaglutide-monthly-depot/", "tag": "Clinical Update"},
+            {"date": "2025-06-01", "headline": "Eli Lilly licenses FluidCrystal for GIP/GLP-1, triple agonist + amylin option — up to $870M (CAM2056 not included in this deal)",
+             "source": "Camurus", "url": "https://www.camurus.com/media/press-releases/2025/camurus-and-lilly-enter-collaboration-and-license-agreement-for-long-acting-fluidcrystal-incretins/", "tag": "Partnership"},
+            {"date": "2026-04-01", "headline": "Q1 2026 CEO update: FDA feedback received for CAM2056; Phase 2 planned H2 2026; autoinjector pen in development for Phase 3",
+             "source": "Camurus CEO message", "url": "https://www.camurus.com/investors/ceo-message/", "tag": "Clinical Update"},
+        ],
+        "refs": [
+            ("Camurus Phase 1b PR Nov 2025", "https://www.camurus.com/media/press-releases/2025/camurus-reports-positive-topline-results-for-cam2056-semaglutide-monthly-depot/"),
+            ("Camurus R&D pipeline", "https://www.camurus.com/us/science/rd-pipeline/"),
+            ("Medicines Patent Pool — FluidCrystal", "https://lapal.medicinespatentpool.org/technology/fluidcrystal"),
+        ],
+    },
+    {
+        "id": 6, "company": "Ascendis Pharma",
+        "product": "TransCon GLP-1",
+        "tech_type": "Prodrug / Linker Chemistry", "tech_cat": "prodrug",
+        "molecule": "GLP-1RA (prodrug-linked)", "mechanism": "GLP-1RA",
+        "indication": "Obesity, T2D",
+        "dosing": "Monthly (target)", "dosing_confirmed": False,
+        "stage": "Preclinical", "stage_order": 1,
+        "geography": "Global", "is_baseline": False,
+        "needle_gauge": "N/A", "needle_ev": "na",
+        "organic_solvent": "N/A (non-depot)", "solvent_ev": "na",
+        "burst_claim": "N/A (non-depot)", "burst_ev": "na",
+        "titration": "—", "titration_ev": "none",
+        "reconstitution": "—", "recon_ev": "none",
+        "storage": "—", "storage_ev": "none",
+        "pk_maturity": 1,
+        "pk_desc": "Preclinical animal proof-of-concept only (as of Nov 2024 deal signing)",
+        "efficacy": "Preclinical animal data only; no human data",
+        "gi_tolerability": "Not specified",
+        "in_house_mfg": True,
+        "commercial_track": "Skytrofa® (growth hormone), Yorvipath® (TransCon platform approvals)",
+        "partnership": "Novo Nordisk $285M licensing deal (Nov 2024); $100M milestone paid at closing; Novo leads development",
+        "trial_id": "No IND/NDA found; Novo-led early development — no 2025/26 update found",
+        "scope": ["all_lai", "full"],
+        "news": [
+            {"date": "2024-11-01", "headline": "Novo Nordisk licenses TransCon GLP-1 for $285M + milestones; $100M paid at closing; Novo leads all development",
+             "source": "Ascendis IR", "url": "https://investors.ascendispharma.com/news-releases/news-release-details/ascendis-pharma-and-novo-nordisk-sign-collaboration-development", "tag": "Partnership"},
+        ],
+        "refs": [
+            ("Ascendis IR release (Nov 2024)", "https://investors.ascendispharma.com/news-releases/news-release-details/ascendis-pharma-and-novo-nordisk-sign-collaboration-development"),
+            ("SEC Form 6-K", "https://www.sec.gov/Archives/edgar/data/0001612042/000119312524280059/d918920d6k.htm"),
+        ],
+    },
+    {
+        "id": 7, "company": "Mapi Pharma",
+        "product": "Semaglutide Depot",
+        "tech_type": "PLGA Microsphere Depot", "tech_cat": "depot_plga",
+        "molecule": "Semaglutide", "mechanism": "GLP-1RA",
+        "indication": "Diabetes",
+        "dosing": "Every 28 days (target)", "dosing_confirmed": False,
+        "stage": "Phase 1/2 Enrolling", "stage_order": 3,
+        "geography": "Global (Israel)", "is_baseline": False,
+        "needle_gauge": "—", "needle_ev": "none",
+        "organic_solvent": "DCM used in w/o/w manufacturing", "solvent_ev": "confirmed",
+        "burst_claim": "—", "burst_ev": "none",
+        "titration": "—", "titration_ev": "none",
+        "reconstitution": "Required (microsphere)", "recon_ev": "inferred",
+        "storage": "—", "storage_ev": "none",
+        "pk_maturity": 1,
+        "pk_desc": "db/db mouse + minipig: 28-day stable plasma conc., HbA1c & glucose data (ADA 2024 poster 2052-LB)",
+        "efficacy": "Preclinical: similar efficacy to daily semaglutide API over 28 days in db/db mice",
+        "gi_tolerability": "Not specified (no human data)",
+        "in_house_mfg": False,
+        "commercial_track": "GA Depot (MS) — Phase 3 complete, FDA filing stage (not yet approved)",
+        "partnership": "Seeking licensing partners",
+        "trial_id": "NCT07563699 — Phase I/II enrolling Jun 2026",
+        "scope": ["semaglutide_depot", "all_lai", "full"],
+        "news": [
+            {"date": "2026-06-01", "headline": "Mapi at ADA 2026; Phase I/II (NCT07563699) enrolling — first human data expected later in 2026",
+             "source": "GlobeNewswire", "url": "https://www.globenewswire.com/news-release/2026/06/01/3304425/0/en/Mapi-Pharma-to-Participate-in-the-ASCO-Annual-Meeting-and-ADA-2026-Scientific-Sessions.html", "tag": "Clinical Update"},
+            {"date": "2024-06-01", "headline": "ADA 2024 poster 2052-LB: Q4W depot shows similar efficacy to daily sema API in db/db mice over 28 days",
+             "source": "ADA 2024", "url": "https://diabetesjournals.org/diabetes/article/73/Supplement_1/2052-LB/155770/", "tag": "Conference Data"},
+        ],
+        "refs": [
+            ("ADA 2024 poster 2052-LB", "https://diabetesjournals.org/diabetes/article/73/Supplement_1/2052-LB/155770/"),
+            ("GlobeNewswire Jun 2026", "https://www.globenewswire.com/news-release/2026/06/01/3304425/0/en/Mapi-Pharma-to-Participate-in-the-ASCO-Annual-Meeting-and-ADA-2026-Scientific-Sessions.html"),
+        ],
+    },
+    {
+        "id": 8, "company": "SN Bio",
+        "product": "Not identified",
+        "tech_type": "Unknown", "tech_cat": "unknown",
+        "molecule": "Unknown", "mechanism": "Unknown",
+        "indication": "Unknown",
+        "dosing": "—", "dosing_confirmed": False,
+        "stage": "Unknown", "stage_order": 0,
+        "geography": "Korean", "is_baseline": False,
+        "needle_gauge": "—", "needle_ev": "none",
+        "organic_solvent": "—", "solvent_ev": "none",
+        "burst_claim": "—", "burst_ev": "none",
+        "titration": "—", "titration_ev": "none",
+        "reconstitution": "—", "recon_ev": "none",
+        "storage": "—", "storage_ev": "none",
+        "pk_maturity": 0,
+        "pk_desc": "No public data found",
+        "efficacy": "No public data found",
+        "gi_tolerability": "No public data found",
+        "in_house_mfg": False,
+        "commercial_track": "No public data found",
+        "partnership": "No public data found",
+        "trial_id": "No public data found — needs internal source",
+        "scope": ["semaglutide_depot", "all_lai", "full"],
+        "news": [],
+        "refs": [],
+    },
+    {
+        "id": 9, "company": "Owl Bio / Kyungdong",
+        "product": "AUL009 / Xtina™",
+        "tech_type": "PLGA Microsphere Depot", "tech_cat": "depot_plga",
+        "molecule": "Semaglutide", "mechanism": "GLP-1RA",
+        "indication": "Obesity",
+        "dosing": "Monthly", "dosing_confirmed": True,
+        "stage": "Phase 1", "stage_order": 3,
+        "geography": "Korean", "is_baseline": False,
+        "needle_gauge": "27G ultra-fine", "needle_ev": "confirmed",
+        "organic_solvent": "—", "solvent_ev": "none",
+        "burst_claim": "Suppressed", "burst_ev": "claim",
+        "titration": "—", "titration_ev": "none",
+        "reconstitution": "—", "recon_ev": "none",
+        "storage": "—", "storage_ev": "none",
+        "pk_maturity": 2,
+        "pk_desc": "Phase 1 human: single dose stable plasma >30 days in adult males (ADA 2026 late-breaker)",
+        "efficacy": "Stable plasma >30 days from single dose — dosing interval confirmed in humans",
+        "gi_tolerability": "Not specified beyond burst suppression claim",
+        "in_house_mfg": False,
+        "commercial_track": "No prior approvals for Owl Bio / Xtina platform",
+        "partnership": "Kyungdong Pharm — exclusive co-dev rights (May 2024)",
+        "trial_id": "ADA 2026 late-breaker PK/safety data (specific registry # not located)",
+        "scope": ["semaglutide_depot", "all_lai", "full"],
+        "news": [
+            {"date": "2026-06-08", "headline": "ADA 2026 late-breaker: single dose AUL009 maintained stable plasma >30 days in adult males; 27G ultra-fine needle confirmed",
+             "source": "Hankyung", "url": "https://www.hankyung.com/article/202606119708i", "tag": "Clinical Update"},
+            {"date": "2024-05-01", "headline": "Kyungdong Pharm exclusive co-development agreement with Owl Bio for AUL009 (Xtina platform)",
+             "source": "Bosa", "url": "http://www.bosa.co.kr/news/articleView.html?idxno=2222356", "tag": "Partnership"},
+        ],
+        "refs": [
+            ("Hankyung ADA 2026", "https://www.hankyung.com/article/202606119708i"),
+            ("Bosa deal announcement", "http://www.bosa.co.kr/news/articleView.html?idxno=2222356"),
+        ],
+    },
+    {
+        "id": 10, "company": "Dongkook Pharma",
+        "product": "DK-LADS",
+        "tech_type": "PLGA Microsphere Depot", "tech_cat": "depot_plga",
+        "molecule": "Semaglutide / Tirzepatide", "mechanism": "GLP-1RA / GLP-1·GIP",
+        "indication": "Obesity, Diabetes",
+        "dosing": "Monthly–3 months (target)", "dosing_confirmed": False,
+        "stage": "Preclinical", "stage_order": 1,
+        "geography": "Korean", "is_baseline": False,
+        "needle_gauge": "—", "needle_ev": "none",
+        "organic_solvent": "—", "solvent_ev": "none",
+        "burst_claim": "—", "burst_ev": "none",
+        "titration": "—", "titration_ev": "none",
+        "reconstitution": "—", "recon_ev": "none",
+        "storage": "—", "storage_ev": "none",
+        "pk_maturity": 0,
+        "pk_desc": "No data published",
+        "efficacy": "No data published",
+        "gi_tolerability": "No data published",
+        "in_house_mfg": False,
+        "commercial_track": "No depot products commercialized",
+        "partnership": "None disclosed",
+        "trial_id": "Phase 1 IND targeting 2027",
+        "scope": ["semaglutide_depot", "all_lai", "full"],
+        "news": [
+            {"date": "2026-05-01", "headline": "DK-LADS: targeting monthly–3 month dosing; evaluating semaglutide AND tirzepatide; Phase 1 IND targeting 2027",
+             "source": "약사공론", "url": "https://www.kpanews.co.kr/news/articleView.html?idxno=534518", "tag": "Company News"},
+        ],
+        "refs": [
+            ("약사공론 Korean LAI overview", "https://www.kpanews.co.kr/news/articleView.html?idxno=534518"),
+        ],
+    },
+    # ── NEW ENTRANTS (from broader "long acting injectable" search) ────────────
+    {
+        "id": 11, "company": "Ascletis Pharma",
+        "product": "ASC30 / ULAP™",
+        "tech_type": "Small Molecule Depot (SC)", "tech_cat": "depot_smol",
+        "molecule": "ASC30 (proprietary small-molecule GLP-1R biased agonist)", "mechanism": "GLP-1R biased agonist (small molecule)",
+        "indication": "Obesity",
+        "dosing": "Monthly (treatment) / Quarterly (maintenance)", "dosing_confirmed": True,
+        "stage": "Phase 2 Complete", "stage_order": 4,
+        "geography": "Global (HK-listed)", "is_baseline": False,
+        "needle_gauge": "Standard SC (small molecule solution)", "needle_ev": "none",
+        "organic_solvent": "—", "solvent_ev": "none",
+        "burst_claim": "—", "burst_ev": "none",
+        "titration": "Not required — directly to monthly", "titration_ev": "confirmed",
+        "reconstitution": "—", "recon_ev": "none",
+        "storage": "—", "storage_ev": "none",
+        "pk_maturity": 4,
+        "pk_desc": "Phase 1b: t½ = 46 days (treatment) / 75 days (maintenance) in humans. Phase 2: 7.5% wt loss at wk16.",
+        "efficacy": "Phase 2 (NCT06679959, n=65 US): 7.5% placebo-adjusted wt loss at wk16 after 3 monthly doses; maintained 4 months post-dose → quarterly potential",
+        "gi_tolerability": "GLP-1 class consistent; no additional safety signals reported (Phase 2)",
+        "in_house_mfg": True,
+        "commercial_track": "No approved products; ULAP + AISBDD platforms proprietary",
+        "partnership": "Ascletis-led; no licensing deal disclosed",
+        "trial_id": "NCT06679959 (Phase 2 complete Mar 2026); Phase 3 planning",
+        "scope": ["all_lai", "full"],
+        "news": [
+            {"date": "2026-03-10", "headline": "Phase 2 positive (n=65 US): 7.5% wt loss at wk16; weight maintained 4 months after last dose — quarterly maintenance dosing supported",
+             "source": "PR Newswire", "url": "https://www.prnewswire.com/news-releases/ascletis-announces-positive-topline-results-from-us-phase-ii-24-week-study-302709245.html", "tag": "Clinical Update"},
+            {"date": "2025-09-09", "headline": "Phase 1b: maintenance formulation t½ = 75 days; treatment t½ = 46 days in humans — longest observed half-life in LAI GLP-1 class",
+             "source": "PR Newswire", "url": "https://www.prnewswire.com/news-releases/ascletis-announces-ultra-long-acting-subcutaneous-depot-maintenance-formulation-302550420.html", "tag": "Clinical Update"},
+            {"date": "2026-03-10", "headline": "First GLP-1 to achieve class-consistent weight loss with monthly injection WITHOUT requiring weekly lead-in (key differentiator vs Pfizer/Camurus)",
+             "source": "Fierce Biotech", "url": "https://www.fiercebiotech.com/biotech/ascletis-posts-phase-2-obesity-data-touts-potential-quarterly-glp-1-dosing", "tag": "Company News"},
+        ],
+        "refs": [
+            ("Phase 2 PR Newswire Mar 2026", "https://www.prnewswire.com/news-releases/ascletis-announces-positive-topline-results-from-us-phase-ii-24-week-study-302709245.html"),
+            ("Phase 1b t½ 75 days Sep 2025", "https://www.prnewswire.com/news-releases/ascletis-announces-ultra-long-acting-subcutaneous-depot-maintenance-formulation-302550420.html"),
+            ("Fierce Biotech coverage", "https://www.fiercebiotech.com/biotech/ascletis-posts-phase-2-obesity-data-touts-potential-quarterly-glp-1-dosing"),
+        ],
+    },
+    {
+        "id": 12, "company": "Samsung Bioepis + G2GBio",
+        "product": "Long-acting semaglutide / InnoLamp™",
+        "tech_type": "PLGA Microsphere Depot", "tech_cat": "depot_plga",
+        "molecule": "Semaglutide", "mechanism": "GLP-1RA",
+        "indication": "Obesity",
+        "dosing": "Monthly (target)", "dosing_confirmed": False,
+        "stage": "Preclinical", "stage_order": 1,
+        "geography": "Korean / Global", "is_baseline": False,
+        "needle_gauge": "—", "needle_ev": "none",
+        "organic_solvent": "—", "solvent_ev": "none",
+        "burst_claim": "—", "burst_ev": "none",
+        "titration": "—", "titration_ev": "none",
+        "reconstitution": "—", "recon_ev": "none",
+        "storage": "—", "storage_ev": "none",
+        "pk_maturity": 0,
+        "pk_desc": "No clinical trial data disclosed; preclinical or early development",
+        "efficacy": "No data disclosed",
+        "gi_tolerability": "No data",
+        "in_house_mfg": False,
+        "commercial_track": "Samsung Bioepis: major biosimilar commercializer (Hadlima, Byooviz, Opuviz, etc.)",
+        "partnership": "Samsung Bioepis full license + Epis NexLab co-dev + Samsung Epis Holdings KRW 20B (~$13.3M) G2GBio convertible bond investment (Mar 2026)",
+        "trial_id": "No trial registered; preclinical stage",
+        "scope": ["semaglutide_depot", "all_lai", "full"],
+        "news": [
+            {"date": "2026-03-16", "headline": "Samsung Bioepis + Epis NexLab sign R&D + license agreement with G2GBio; Samsung Epis Holdings invests KRW 20B in G2GBio convertible bonds",
+             "source": "Business Wire", "url": "https://www.businesswire.com/news/home/20260316253695/en/", "tag": "Partnership"},
+            {"date": "2026-03-16", "headline": "First strategic pivot for Samsung Bioepis from biosimilars into novel biologics following Nov 2025 Samsung Epis Holdings spin-off",
+             "source": "Pearce IP", "url": "https://www.pearceip.law/2026/03/16/samsung-bioepis-g2gbio-ink-deal-for-development-of-long-acting-semaglutide/", "tag": "Company News"},
+        ],
+        "refs": [
+            ("Business Wire Mar 2026", "https://www.businesswire.com/news/home/20260316253695/en/"),
+            ("Korea Biomed coverage", "https://www.koreabiomed.com/news/articleView.html?idxno=30935"),
+            ("Pearce IP analysis", "https://www.pearceip.law/2026/03/16/samsung-bioepis-g2gbio-ink-deal-for-development-of-long-acting-semaglutide/"),
+        ],
+    },
+    {
+        "id": 13, "company": "Vivani Medical",
+        "product": "NPM-139 / NanoPortal™",
+        "tech_type": "Subdermal Implant (6–12 months)", "tech_cat": "implant",
+        "molecule": "Semaglutide", "mechanism": "GLP-1RA",
+        "indication": "Obesity",
+        "dosing": "Once or twice yearly (6–12 month implant)", "dosing_confirmed": False,
+        "stage": "Phase 1 Initiated", "stage_order": 3,
+        "geography": "Global (Nasdaq: VANI)", "is_baseline": False,
+        "needle_gauge": "N/A — minor subdermal insertion procedure", "needle_ev": "confirmed",
+        "organic_solvent": "N/A", "solvent_ev": "confirmed",
+        "burst_claim": "Continuous steady-state delivery by design (no burst)", "burst_ev": "claim",
+        "titration": "N/A", "titration_ev": "confirmed",
+        "reconstitution": "N/A", "recon_ev": "confirmed",
+        "storage": "—", "storage_ev": "none",
+        "pk_maturity": 1,
+        "pk_desc": "Preclinical: ~20% sham-adjusted wt loss >6 months from single implant. Phase 1 SLIM-1 initiating mid-2026 (Australia).",
+        "efficacy": "Preclinical: ~20% weight loss maintained >6 months from single NPM-139 implant; full-year weight loss shown in latest data",
+        "gi_tolerability": "Theoretically improved by smooth/steady GLP-1 delivery (no peak-trough fluctuations) — company claim only",
+        "in_house_mfg": True,
+        "commercial_track": "LIBERATE-1 (NPM-115 exenatide implant) Phase 1 complete — first-in-human NanoPortal validation",
+        "partnership": "Vivani-led; no licensing deal; Nasdaq-listed (VANI), cash funded into mid-2027",
+        "trial_id": "SLIM-1 (Phase 1) initiating mid-2026 Australia; top-line data by end 2026; Phase 2 IND targeting 2027",
+        "scope": ["all_lai", "full"],
+        "news": [
+            {"date": "2026-05-13", "headline": "Q1 2026: SLIM-1 Phase 1 on track for mid-2026 initiation in Australia; top-line data by year-end; $28M cash into mid-2027",
+             "source": "GlobeNewswire / SEC", "url": "https://www.stocktitan.net/news/VANI/vivani-medical-reports-first-quarter-2026-financial-results-and-8130ax03avhv.html", "tag": "Clinical Update"},
+            {"date": "2026-03-26", "headline": "Preclinical update: single NPM-139 implant → >20% sham-adjusted wt loss maintained for a full year",
+             "source": "SEC 8-K", "url": "https://www.sec.gov/Archives/edgar/data/1266806/000175392626000550/ex991_1.htm", "tag": "Conference Data"},
+            {"date": "2025-08-05", "headline": "LIBERATE-1 Phase 1 complete (exenatide implant NPM-115) — NanoPortal safety + tolerability validated in humans for first time",
+             "source": "Vivani IR", "url": "https://investors.vivani.com/investors/news-events/press-releases/detail/198/vivani-medical-announces-rapid-advancement-of-npm-139-a", "tag": "Clinical Update"},
+        ],
+        "refs": [
+            ("Vivani Q1 2026 results", "https://www.stocktitan.net/news/VANI/vivani-medical-reports-first-quarter-2026-financial-results-and-8130ax03avhv.html"),
+            ("SEC 8-K LIBERATE-1 & NPM-139 Mar 2026", "https://www.sec.gov/Archives/edgar/data/1266806/000175392626000550/ex991_1.htm"),
+            ("Vivani NPM-139 update Sep 2025", "https://www.globenewswire.com/news-release/2025/09/04/3144519/0/en/Vivani-Medical-Provides-Update-on-Clinical-Development-Plans-for-NPM-139-Semaglutide-Implant-for-Chronic-Weight-Management.html"),
+        ],
+    },
+]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HELPERS
+# ─────────────────────────────────────────────────────────────────────────────
+TECH_COLOR = {
+    "depot_plga":   "#3b82f6",
+    "depot_lipid":  "#14b8a6",
+    "depot_smol":   "#22c55e",
+    "molecular_eng":"#8b5cf6",
+    "prodrug":      "#f59e0b",
+    "implant":      "#ec4899",
+    "unknown":      "#94a3b8",
+}
+TECH_BADGE = {
+    "depot_plga":   ("b-plga",  "PLGA Depot"),
+    "depot_lipid":  ("b-lipid", "Lipid Depot"),
+    "depot_smol":   ("b-smol",  "Small Mol Depot"),
+    "molecular_eng":("b-mol",   "Molecular Eng."),
+    "prodrug":      ("b-prodrug","Prodrug/Linker"),
+    "implant":      ("b-implant","Implant"),
+    "unknown":      ("b-unknown","Unknown"),
+}
+STAGE_BADGE = {
+    "Unknown":                          ("s-unknown", "Unknown"),
+    "Preclinical":                      ("s-preclin", "Preclinical"),
+    "IND Filed":                        ("s-ind",     "IND Filed"),
+    "Phase 1":                          ("s-ph1",     "Phase 1"),
+    "Phase 1b Complete / Ph2 Planned":  ("s-ph1",     "Ph1b ✓ / Ph2 →"),
+    "Phase 1 Initiated":                ("s-ph1",     "Phase 1 →"),
+    "Phase 1/2 Enrolling":              ("s-ph1",     "Ph1/2 Enrolling"),
+    "Phase 2 Complete":                 ("s-ph2",     "Phase 2 ✓"),
+    "Phase 3":                          ("s-ph3",     "Phase 3"),
+}
+TAG_CSS = {
+    "Clinical Update":  "t-clinical",
+    "Partnership":      "t-partner",
+    "IND Filing":       "t-ind",
+    "Conference Data":  "t-conf",
+    "IP/Patent":        "t-ip",
+    "Manufacturing":    "t-mfg",
+    "Company News":     "t-company",
+}
+EV_HTML = {
+    "confirmed":  '<span class="ev-confirmed">✓ Confirmed</span>',
+    "claim":      '<span class="ev-claim">○ Company claim</span>',
+    "inferred":   '<span class="ev-inferred">~ Inferred</span>',
+    "na":         '<span class="ev-none">N/A</span>',
+    "none":       '<span class="ev-none">— Not found</span>',
+}
+PK_LABELS = ["No data", "Preclinical animal", "Early human / Ph1", "Phase 1b / Ph2 partial", "Phase 2b / Ph3"]
+
+GEO_BADGE = {
+    "Korean":           ("geo-kr", "🇰🇷 Korean"),
+    "Global":           ("geo-gl", "🌐 Global"),
+    "Global (HK-listed)":("geo-gl","🌐 Global"),
+    "Global (Israel)":  ("geo-gl", "🌐 Global"),
+    "Global (Nasdaq: VANI)":("geo-gl","🌐 Global"),
+    "Korean / Global":  ("geo-kr", "🇰🇷/🌐"),
+}
+
+SCOPE_LABELS = {
+    "semaglutide_depot": "Semaglutide depot only",
+    "all_lai": "All long-acting injectables (inc. non-depot)",
+    "full": "Full landscape (inc. implant & small molecule)",
+}
+
+def badge(text, css_class):
+    return f'<span class="badge {css_class}">{text}</span>'
+
+def tag_html(tag):
+    css = TAG_CSS.get(tag, "t-company")
+    return f'<span class="tag {css}">{tag}</span>'
+
+def filter_competitors(scope):
+    return [c for c in COMPETITORS if scope in c["scope"]]
+
+def df_from_competitors(comps):
+    rows = []
+    for c in comps:
+        rows.append({
+            "Company": c["company"],
+            "Product": c["product"],
+            "Tech Type": c["tech_type"],
+            "Mechanism": c["mechanism"],
+            "Indication": c["indication"],
+            "Dosing": c["dosing"],
+            "Stage": c["stage"],
+            "Geography": c["geography"],
+            "In-house Mfg": "Yes" if c["in_house_mfg"] else "No",
+            "Partnership": c["partnership"],
+            "Trial ID": c["trial_id"],
+        })
+    return pd.DataFrame(rows)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SCREEN 1 — LANDSCAPE ("THE RACE")
+# ─────────────────────────────────────────────────────────────────────────────
+def render_landscape(comps):
+    st.markdown("## 🏁 Screen 1 — Competitive Landscape")
+    st.markdown('<p class="sub">Development stage swim lane · all pipeline entrants in scope</p>', unsafe_allow_html=True)
+
+    # summary metrics
+    n = len(comps)
+    n_human   = sum(1 for c in comps if c["pk_maturity"] >= 2)
+    n_korean  = sum(1 for c in comps if "Korean" in c["geography"])
+    n_global  = sum(1 for c in comps if "Global" in c["geography"])
+    n_ph3     = sum(1 for c in comps if c["stage_order"] >= 5)
+
+    col1, col2, col3, col4, col5 = st.columns(5)
+    for col, num, label in zip(
+        [col1, col2, col3, col4, col5],
+        [n, n_human, n_korean, n_global, n_ph3],
+        ["Total tracked", "Have human data", "Korean players", "Global players", "Phase 3+"],
+    ):
+        col.markdown(f'<div class="metric-box"><div class="metric-num">{num}</div><div class="metric-lbl">{label}</div></div>', unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # ── swim lane ──────────────────────────────────────────────────────────
+    stage_labels = {0: "Unknown", 1: "Preclinical", 2: "IND Filed", 3: "Phase 1", 4: "Phase 2", 5: "Phase 3", 6: "NDA", 7: "Approved"}
+    stage_positions = {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7}
+
+    # sort by stage desc, then geography (Korean first)
+    sorted_comps = sorted(comps, key=lambda c: (-c["stage_order"], c["geography"]))
+
+    fig = go.Figure()
+    for c in sorted_comps:
+        tc = c["tech_cat"]
+        color = TECH_COLOR.get(tc, "#94a3b8")
+        x_pos = stage_positions.get(c["stage_order"], 0)
+        label = c["company"]
+        if c.get("is_baseline"):
+            label += " ★"
+        symbol = "circle" if "Global" not in c["geography"] else "diamond"
+        fig.add_trace(go.Scatter(
+            x=[x_pos], y=[label],
+            mode="markers+text",
+            marker=dict(size=22, color=color, symbol=symbol,
+                        line=dict(width=2, color="white")),
+            text=[c["product"].split("/")[0].strip()],
+            textposition="middle right",
+            textfont=dict(size=10, color="#374151"),
+            name=TECH_BADGE.get(tc, ("", tc))[1],
+            hovertemplate=(
+                f"<b>{c['company']}</b><br>"
+                f"Product: {c['product']}<br>"
+                f"Stage: {c['stage']}<br>"
+                f"Dosing: {c['dosing']}<br>"
+                f"Mechanism: {c['mechanism']}<br>"
+                f"Geography: {c['geography']}"
+                "<extra></extra>"
+            ),
+            showlegend=False,
+        ))
+
+    # legend traces
+    for tc, color in TECH_COLOR.items():
+        if any(c["tech_cat"] == tc for c in comps):
+            lbl = TECH_BADGE.get(tc, ("", tc))[1]
+            fig.add_trace(go.Scatter(
+                x=[None], y=[None],
+                mode="markers",
+                marker=dict(size=12, color=color),
+                name=lbl,
+            ))
+
+    fig.update_layout(
+        height=max(380, len(sorted_comps) * 45),
+        xaxis=dict(
+            tickvals=list(stage_positions.values()),
+            ticktext=[stage_labels[k] for k in sorted(stage_positions)],
+            title="Development stage", gridcolor="#f1f5f9",
+            range=[-0.5, 7.5],
+        ),
+        yaxis=dict(title="", automargin=True, gridcolor="#f1f5f9"),
+        plot_bgcolor="white", paper_bgcolor="white",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0,
+                    title_text="Technology type:"),
+        margin=dict(l=10, r=200, t=50, b=40),
+        font=dict(family="Inter, sans-serif", size=12),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.info("⬦ Diamond = Global player · ● Circle = Korean player · ★ = Baseline (Daewoong + Tionlab)")
+
+    # ── dosing interval comparison ─────────────────────────────────────────
+    st.markdown("### Dosing interval at a glance")
+    dosing_comps = [c for c in comps if c["stage_order"] > 0]
+    dosing_data = {
+        "Company": [c["company"] for c in dosing_comps],
+        "Dosing": [c["dosing"] for c in dosing_comps],
+        "Confirmed": ["✓" if c["dosing_confirmed"] else "Target" for c in dosing_comps],
+        "Stage": [c["stage"] for c in dosing_comps],
+    }
+    st.dataframe(pd.DataFrame(dosing_data), use_container_width=True, hide_index=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SCREEN 2 — TIER 2 DEPOT DEEP-DIVE
+# ─────────────────────────────────────────────────────────────────────────────
+def render_tier2(comps):
+    st.markdown("## 🔬 Screen 2 — Formulation Deep-Dive (Depot Players Only)")
+    st.markdown('<p class="sub">Applies only to encapsulation/depot technologies. Non-depot (molecular engineering, prodrug, implant) shown separately.</p>', unsafe_allow_html=True)
+
+    depot_cats = {"depot_plga", "depot_lipid", "depot_smol"}
+    depot = [c for c in comps if c["tech_cat"] in depot_cats]
+    non_depot = [c for c in comps if c["tech_cat"] not in depot_cats and c["tech_cat"] != "unknown"]
+
+    if not depot:
+        st.warning("No depot players visible in current scope.")
+        return
+
+    # evidence legend
+    st.markdown("""
+    <div style="display:flex; gap:1.5rem; font-size:0.8rem; margin-bottom:1rem; flex-wrap:wrap;">
+    <span class="ev-confirmed">✓ Confirmed from source</span>
+    <span class="ev-claim">○ Company claim (unverified)</span>
+    <span class="ev-inferred">~ Inferred from platform</span>
+    <span class="ev-none">— Not found in public sources</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # build table rows
+    FIELDS = [
+        ("Formulation type", "tech_type", "tech_type"),
+        ("Needle gauge", "needle_gauge", "needle_ev"),
+        ("Organic solvent use", "organic_solvent", "solvent_ev"),
+        ("Reconstitution required", "reconstitution", "recon_ev"),
+        ("Storage condition", "storage", "storage_ev"),
+        ("Initial burst claim", "burst_claim", "burst_ev"),
+        ("Titration required", "titration", "titration_ev"),
+        ("Confirmed dosing interval", "dosing", None),
+        ("PK data available", "pk_desc", None),
+        ("Efficacy data", "efficacy", None),
+        ("GI tolerability", "gi_tolerability", None),
+        ("In-house manufacturing", "in_house_mfg", None),
+        ("Platform commercialization track", "commercial_track", None),
+        ("Key partnership", "partnership", None),
+        ("Clinical trial ID", "trial_id", None),
+    ]
+
+    company_names = [c["company"] for c in depot]
+    header = "| Category | " + " | ".join(company_names) + " |"
+    sep = "|---|" + "---|" * len(depot)
+
+    table_html = f"""
+    <div style="overflow-x:auto;">
+    <table style="border-collapse:collapse; font-size:0.78rem; width:100%; min-width:800px;">
+    <thead><tr style="background:#f8fafc;">
+    <th style="padding:8px 10px; border:1px solid #e2e8f0; white-space:nowrap; min-width:160px;">Category</th>
+    """
+    for c in depot:
+        bc, bl = TECH_BADGE.get(c["tech_cat"], ("b-unknown", c["tech_type"]))
+        star = " ★" if c.get("is_baseline") else ""
+        table_html += f'<th style="padding:8px 10px; border:1px solid #e2e8f0; min-width:140px;">{c["company"]}{star}<br><span class="badge {bc}" style="font-size:0.65rem;">{bl}</span></th>'
+    table_html += "</tr></thead><tbody>"
+
+    ev_color = {
+        "confirmed": "#f0fdf4",
+        "claim":     "#fffbeb",
+        "inferred":  "#eff6ff",
+        "none":      "#fafafa",
+        "na":        "#fafafa",
+    }
+
+    for label, field, ev_field in FIELDS:
+        table_html += f'<tr><td style="padding:7px 10px; border:1px solid #e2e8f0; font-weight:600; background:#f8fafc; white-space:nowrap;">{label}</td>'
+        for c in depot:
+            val = c.get(field, "—")
+            ev = c.get(ev_field, "none") if ev_field else "none"
+            bg = ev_color.get(ev, "#fafafa")
+            if field == "in_house_mfg":
+                val = "✓ Yes" if val else "✗ No / CMO"
+            ev_html = EV_HTML.get(ev, "") if ev_field else ""
+            table_html += f'<td style="padding:7px 10px; border:1px solid #e2e8f0; background:{bg}; vertical-align:top;">{val}<br><span style="font-size:0.68rem;">{ev_html}</span></td>'
+        table_html += "</tr>"
+
+    table_html += "</tbody></table></div>"
+    st.markdown(table_html, unsafe_allow_html=True)
+
+    if non_depot:
+        st.markdown("---")
+        st.markdown("### Non-depot players in scope")
+        st.caption("Needle gauge, organic solvent, burst, and reconstitution are not applicable for these technologies.")
+        nd_data = {
+            "Company": [c["company"] for c in non_depot],
+            "Product": [c["product"] for c in non_depot],
+            "Technology": [c["tech_type"] for c in non_depot],
+            "Stage": [c["stage"] for c in non_depot],
+            "Titration": [c["titration"] for c in non_depot],
+            "Storage": [c["storage"] for c in non_depot],
+            "PK data": [c["pk_desc"] for c in non_depot],
+            "GI tolerability": [c["gi_tolerability"] for c in non_depot],
+        }
+        st.dataframe(pd.DataFrame(nd_data), use_container_width=True, hide_index=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SCREEN 3 — COMPETITOR PROFILE CARDS
+# ─────────────────────────────────────────────────────────────────────────────
+def render_cards(comps):
+    st.markdown("## 🃏 Screen 3 — Competitor Profile Cards")
+    st.markdown('<p class="sub">Filter by technology, stage, or geography · expand each card for recent news and sources</p>', unsafe_allow_html=True)
+
+    # filters
+    fc1, fc2, fc3 = st.columns(3)
+    with fc1:
+        tech_options = sorted(set(c["tech_type"] for c in comps))
+        sel_tech = st.multiselect("Technology type", tech_options, default=tech_options, key="card_tech")
+    with fc2:
+        stage_options = sorted(set(c["stage"] for c in comps))
+        sel_stage = st.multiselect("Stage", stage_options, default=stage_options, key="card_stage")
+    with fc3:
+        geo_options = sorted(set(c["geography"] for c in comps))
+        sel_geo = st.multiselect("Geography", geo_options, default=geo_options, key="card_geo")
+
+    filtered = [c for c in comps
+                if c["tech_type"] in sel_tech
+                and c["stage"] in sel_stage
+                and c["geography"] in sel_geo]
+
+    if not filtered:
+        st.warning("No competitors match the selected filters.")
+        return
+
+    st.caption(f"Showing {len(filtered)} of {len(comps)} competitors")
+
+    cols = st.columns(2)
+    for i, c in enumerate(filtered):
+        col = cols[i % 2]
+        with col:
+            tc = c["tech_cat"]
+            bc, bl = TECH_BADGE.get(tc, ("b-unknown", c["tech_type"]))
+            sc, sl = STAGE_BADGE.get(c["stage"], ("s-unknown", c["stage"]))
+            geo_cls, geo_lbl = GEO_BADGE.get(c["geography"], ("geo-gl", c["geography"]))
+            star_note = " <small>★ Baseline</small>" if c.get("is_baseline") else ""
+            pk_mat = c["pk_maturity"]
+            pk_bar = "█" * pk_mat + "░" * (4 - pk_mat)
+
+            card_content = f"""
+            <div class="card">
+              <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                <div>
+                  <p class="card-title">{c['company']}{star_note}</p>
+                  <p class="card-sub">{c['product']}</p>
+                </div>
+                <div style="text-align:right; font-size:0.72rem; color:#64748b;">
+                  ID {c['id']:02d}
+                </div>
+              </div>
+              <div class="card-row">
+                {badge(bl, bc)}
+                {badge(sl, sc)}
+                {badge(geo_lbl, geo_cls)}
+              </div>
+              <table style="width:100%; font-size:0.78rem; border-collapse:collapse; margin-top:6px;">
+                <tr><td style="color:#64748b; padding:3px 0; width:130px;">Mechanism</td><td style="padding:3px 0;">{c['mechanism']}</td></tr>
+                <tr><td style="color:#64748b; padding:3px 0;">Indication</td><td style="padding:3px 0;">{c['indication']}</td></tr>
+                <tr><td style="color:#64748b; padding:3px 0;">Dosing interval</td><td style="padding:3px 0;">{c['dosing']} {'✓' if c['dosing_confirmed'] else '<span style="color:#d97706; font-size:0.7rem;">target</span>'}</td></tr>
+                <tr><td style="color:#64748b; padding:3px 0;">PK maturity</td>
+                    <td style="padding:3px 0; font-family:monospace;">{pk_bar} <span style="font-size:0.7rem; color:#64748b;">{PK_LABELS[pk_mat]}</span></td></tr>
+                <tr><td style="color:#64748b; padding:3px 0; vertical-align:top;">Partnership</td><td style="padding:3px 0;">{c['partnership'][:90]}{'…' if len(c['partnership'])>90 else ''}</td></tr>
+                <tr><td style="color:#64748b; padding:3px 0;">Trial / status</td><td style="padding:3px 0;">{c['trial_id']}</td></tr>
+              </table>
+            </div>
+            """
+            st.markdown(card_content, unsafe_allow_html=True)
+
+            # news expander
+            if c["news"]:
+                with st.expander(f"📰 Recent news ({len(c['news'])} items)"):
+                    for item in sorted(c["news"], key=lambda x: x["date"], reverse=True):
+                        st.markdown(
+                            f'{tag_html(item["tag"])} '
+                            f'<span style="font-size:0.75rem; color:#94a3b8;">{item["date"]}</span>',
+                            unsafe_allow_html=True,
+                        )
+                        st.markdown(f"**{item['headline']}**")
+                        st.markdown(f"[{item['source']} ↗]({item['url']})")
+                        st.markdown("---")
+            else:
+                with st.expander("📰 Recent news (0 items)"):
+                    st.caption("No public news found — needs internal source.")
+
+            # sources expander
+            if c["refs"]:
+                with st.expander(f"📚 Sources ({len(c['refs'])})"):
+                    for label, url in c["refs"]:
+                        st.markdown(f"- [{label}]({url})")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SCREEN 4 — PK & EFFICACY SNAPSHOT
+# ─────────────────────────────────────────────────────────────────────────────
+def render_pk(comps):
+    st.markdown("## 📊 Screen 4 — PK & Efficacy Snapshot")
+    st.markdown('<p class="sub">Data maturity matrix — how strong is the clinical evidence for each competitor?</p>', unsafe_allow_html=True)
+
+    st.info(
+        "⚠️ PK curve charts are not shown because quantitative plasma concentration-time values "
+        "have not been released in publicly accessible documents for any player. "
+        "Values are only inside conference posters. Once you retrieve those, curves can be built here. "
+        "This screen instead shows a **data maturity matrix** — what evidence type exists across key dimensions."
+    )
+
+    # maturity heatmap
+    DIMENSIONS = ["PK stability data", "Weight loss efficacy", "GI tolerability", "Burst suppression", "Needle gauge confirmed"]
+
+    def score_dim(c, dim):
+        if dim == "PK stability data":
+            return c["pk_maturity"]
+        if dim == "Weight loss efficacy":
+            if "No data" in c["efficacy"] or "No public" in c["efficacy"]:
+                return 0
+            if "Preclinical" in c["efficacy"] or "preclinical" in c["efficacy"]:
+                return 1
+            if "Phase 1" in c["efficacy"] or ">30-day" in c["efficacy"] or "human" in c["efficacy"].lower():
+                return 2
+            if "Phase 2" in c["efficacy"] or "Phase 1b" in c["efficacy"]:
+                return 3
+            if "Phase 3" in c["efficacy"]:
+                return 4
+            return 1
+        if dim == "GI tolerability":
+            v = c["gi_tolerability"]
+            if v in ("No data published", "No data", "Not specified", "No public data found"):
+                return 0
+            if "preclinical" in v.lower() or "claim" in v.lower() or "theoretically" in v.lower():
+                return 1
+            if "Phase 1" in v or "n=16" in v or "adult" in v.lower():
+                return 2
+            if "Phase 1b" in v or "Phase 2" in v:
+                return 3
+            return 1
+        if dim == "Burst suppression":
+            ev = c.get("burst_ev", "none")
+            if ev == "none" or ev == "na":
+                return 0
+            if ev == "claim":
+                return 1
+            if ev == "inferred":
+                return 2
+            if ev == "confirmed":
+                return 3
+            return 0
+        if dim == "Needle gauge confirmed":
+            ev = c.get("needle_ev", "none")
+            if ev == "none":
+                return 0
+            if ev == "na":
+                return 2  # N/A but confirmed
+            if ev == "claim":
+                return 1
+            if ev == "confirmed":
+                return 4
+            return 0
+        return 0
+
+    z = []
+    for dim in DIMENSIONS:
+        row = [score_dim(c, dim) for c in comps]
+        z.append(row)
+
+    comp_names = [c["company"] for c in comps]
+    colorscale = [
+        [0.0,  "#f1f5f9"],
+        [0.25, "#bfdbfe"],
+        [0.5,  "#818cf8"],
+        [0.75, "#4338ca"],
+        [1.0,  "#1e1b4b"],
+    ]
+
+    fig = go.Figure(go.Heatmap(
+        z=z,
+        x=comp_names,
+        y=DIMENSIONS,
+        colorscale=colorscale,
+        zmin=0, zmax=4,
+        colorbar=dict(
+            title="Evidence strength",
+            tickvals=[0, 1, 2, 3, 4],
+            ticktext=["None", "Preclinical/<br>Claim", "Early human", "Ph1b/Ph2", "Ph2b/Ph3"],
+            lenmode="fraction", len=0.7,
+        ),
+        text=[[str(v) for v in row] for row in z],
+        hovertemplate="<b>%{y}</b><br>%{x}: Score %{z}<extra></extra>",
+    ))
+    fig.update_layout(
+        height=380,
+        xaxis=dict(tickangle=-30, tickfont=dict(size=11)),
+        yaxis=dict(tickfont=dict(size=11)),
+        plot_bgcolor="white", paper_bgcolor="white",
+        margin=dict(l=180, r=20, t=30, b=120),
+        font=dict(family="Inter, sans-serif", size=11),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("---")
+    st.markdown("### Efficacy & tolerability summary (text)")
+    for c in comps:
+        if c["pk_maturity"] >= 1:
+            with st.expander(f"**{c['company']}** — {PK_LABELS[c['pk_maturity']]}"):
+                st.markdown(f"**PK data:** {c['pk_desc']}")
+                st.markdown(f"**Efficacy:** {c['efficacy']}")
+                st.markdown(f"**GI tolerability:** {c['gi_tolerability']}")
+                if c["refs"]:
+                    st.markdown("**Sources:**")
+                    for label, url in c["refs"]:
+                        st.markdown(f"- [{label}]({url})")
+
+    # poster links
+    st.markdown("---")
+    st.markdown("### 📋 Where to retrieve actual PK curve values")
+    st.markdown("""
+    | Company | Poster / Source | Direct link |
+    |---|---|---|
+    | Camurus CAM2056 | Q4 2025 investor presentation | [Camurus presentations](https://www.camurus.com/investors/presentations/) |
+    | Owl Bio AUL009 | ADA 2026 late-breaker abstract | [ADA 2026 abstracts](https://diabetesjournals.org/diabetes/issue/75/Supplement_1) |
+    | Peptron PT403 | ADA 2026 poster | [ADA 2026 abstracts](https://diabetesjournals.org/diabetes/issue/75/Supplement_1) |
+    | Mapi Pharma | ADA 2024 poster 2052-LB | [ADA 2024 2052-LB](https://diabetesjournals.org/diabetes/article/73/Supplement_1/2052-LB/155770/) |
+    | InventageLab | ADA 2024 poster 805-P | [ADA 2024 805-P](https://diabetesjournals.org/diabetes/article/73/Supplement_1/805-P/155081/) |
+    | Ascletis ASC30 | Phase 1b / Phase 2 PRs | [Phase 2 PR](https://www.prnewswire.com/news-releases/ascletis-announces-positive-topline-results-from-us-phase-ii-24-week-study-302709245.html) |
+    """)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SCREEN 5 — INTELLIGENCE FEED
+# ─────────────────────────────────────────────────────────────────────────────
+def render_feed(comps):
+    st.markdown("## 📡 Screen 5 — Strategic Intelligence Feed")
+    st.markdown('<p class="sub">All news items across all tracked competitors · newest first · filtered by tag or company</p>', unsafe_allow_html=True)
+
+    all_news = []
+    for c in comps:
+        for item in c["news"]:
+            all_news.append({
+                "date": item["date"],
+                "company": c["company"],
+                "stage": c["stage"],
+                "headline": item["headline"],
+                "source": item["source"],
+                "url": item["url"],
+                "tag": item["tag"],
+                "tech_cat": c["tech_cat"],
+            })
+    all_news.sort(key=lambda x: x["date"], reverse=True)
+
+    # filters
+    ff1, ff2 = st.columns(2)
+    with ff1:
+        all_tags = sorted(set(n["tag"] for n in all_news))
+        sel_tags = st.multiselect("Filter by type", all_tags, default=all_tags, key="feed_tag")
+    with ff2:
+        all_co = sorted(set(n["company"] for n in all_news))
+        sel_co = st.multiselect("Filter by company", all_co, default=all_co, key="feed_co")
+
+    filtered_news = [n for n in all_news if n["tag"] in sel_tags and n["company"] in sel_co]
+    st.caption(f"{len(filtered_news)} items")
+
+    for item in filtered_news:
+        tc = item["tech_cat"]
+        color = TECH_COLOR.get(tc, "#94a3b8")
+        tag_css = TAG_CSS.get(item["tag"], "t-company")
+        st.markdown(
+            f"""<div style="border-left:4px solid {color}; padding:0.55rem 0.9rem;
+                           margin:0.4rem 0; background:#fafafa; border-radius:0 6px 6px 0;">
+              <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:3px;">
+                <span class="tag {tag_css}">{item['tag']}</span>
+                <span style="font-weight:600; font-size:0.82rem;">{item['company']}</span>
+                <span style="font-size:0.75rem; color:#94a3b8;">{item['date']}</span>
+              </div>
+              <p style="margin:2px 0; font-size:0.83rem; color:#1e293b;">{item['headline']}</p>
+              <a href="{item['url']}" target="_blank" style="font-size:0.75rem; color:#3b82f6; text-decoration:none;">
+                {item['source']} ↗
+              </a>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SIDEBAR & ROUTING
+# ─────────────────────────────────────────────────────────────────────────────
+def main():
+    with st.sidebar:
+        st.markdown("### 💊 Semaglutide LAI Tracker")
+        st.markdown("*Competitor Intelligence — v1.0*")
+        st.markdown("**Last updated:** June 2026")
+        st.markdown("---")
+
+        st.markdown("#### 🔭 Scope")
+        scope = st.radio(
+            "Competitive scope",
+            options=list(SCOPE_LABELS.keys()),
+            format_func=lambda x: SCOPE_LABELS[x],
+            index=0,
+            key="scope",
+        )
+        comps = filter_competitors(scope)
+
+        st.markdown(
+            f'<div class="scope-note">Showing <b>{len(comps)}</b> competitors in scope.</div>',
+            unsafe_allow_html=True,
+        )
+
+        st.markdown("---")
+        st.markdown("#### 📑 Navigation")
+        screen = st.radio(
+            "Go to",
+            options=["1 — Landscape", "2 — Formulation deep-dive", "3 — Competitor cards", "4 — PK & Efficacy", "5 — Intelligence feed"],
+            key="screen",
+        )
+
+        st.markdown("---")
+        st.markdown("#### ⚡ Evidence key")
+        st.markdown("""
+        <div style="font-size:0.78rem; line-height:2;">
+        <span class="ev-confirmed">✓</span> Confirmed from source<br>
+        <span class="ev-claim">○</span> Company claim only<br>
+        <span class="ev-inferred">~</span> Inferred from platform<br>
+        <span class="ev-none">—</span> Not found in public sources
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.markdown("---")
+        st.caption("Data gathered from: ADA posters, company IRs, press releases, investor news. No data fabricated or extrapolated.")
+
+    # ── header ───────────────────────────────────────────────────────────
+    st.markdown(
+        '<h1>💊 Semaglutide LAI · Competitor Intelligence</h1>'
+        '<p class="sub">GLP-1RA & Amylin-class long-acting injectable competitive landscape · June 2026</p>',
+        unsafe_allow_html=True,
+    )
+
+    if screen.startswith("1"):
+        render_landscape(comps)
+    elif screen.startswith("2"):
+        render_tier2(comps)
+    elif screen.startswith("3"):
+        render_cards(comps)
+    elif screen.startswith("4"):
+        render_pk(comps)
+    elif screen.startswith("5"):
+        render_feed(comps)
+
+
+if __name__ == "__main__":
+    main()
