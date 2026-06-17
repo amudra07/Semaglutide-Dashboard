@@ -8,6 +8,9 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
+import requests
+import datetime
+import time
 
 st.set_page_config(
     page_title="Semaglutide LAI · Competitor Intelligence",
@@ -15,6 +18,62 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# ─────────────────────────────────────────────────────────────────────────────
+# EMBEDDED TECHNOLOGY OVERVIEW IMAGE
+# ─────────────────────────────────────────────────────────────────────────────
+import base64, pathlib, os
+
+def _load_tech_image() -> str:
+    """
+    Load the formulation-technology overview image as a base64 data URI.
+    Looks next to app.py first, then in common Streamlit deployment locations.
+    Returns empty string if not found so the app degrades gracefully.
+    """
+    candidates = [
+        pathlib.Path(__file__).parent / "formulation_tech_overview.png",
+        pathlib.Path("formulation_tech_overview.png"),
+    ]
+    for p in candidates:
+        if p.exists():
+            with open(p, "rb") as f:
+                return base64.b64encode(f.read()).decode()
+    return ""
+
+TECH_IMAGE_B64 = _load_tech_image()
+
+def render_tech_image_panel(location: str = "landscape"):
+    """
+    Render the technology overview image inline.
+    location = 'landscape'  → collapsible expander (Screen 1)
+    location = 'deepdive'   → prominent panel at top (Screen 2)
+    """
+    if not TECH_IMAGE_B64:
+        st.caption("ℹ️ Place `formulation_tech_overview.png` next to `app.py` to display the mechanism overview.")
+        return
+
+    img_tag = f'<img src="data:image/png;base64,{TECH_IMAGE_B64}" style="width:100%; border-radius:10px; border:1px solid #e2e8f0;" />'
+
+    if location == "landscape":
+        with st.expander("🧬 Technology mechanism overview — click to expand", expanded=False):
+            st.markdown(
+                '<p style="font-size:0.82rem; color:#64748b; margin-bottom:0.5rem;">'
+                'How each formulation technology solves the weekly dosing problem — '
+                'PLGA microsphere, lipid liquid-crystal, small molecule depot, molecular engineering, prodrug, and implant.</p>',
+                unsafe_allow_html=True,
+            )
+            st.markdown(img_tag, unsafe_allow_html=True)
+            st.caption("Source: Internal analysis · May 2024 · Based on publicly available information")
+    else:  # deepdive — show prominently
+        st.markdown("### 🧬 Formulation Technology Mechanism Overview")
+        st.markdown(
+            '<p class="sub">Visual guide to how each technology category achieves long-acting release — '
+            'use this as a reference while reading the comparison table below.</p>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(img_tag, unsafe_allow_html=True)
+        st.caption("Source: Internal analysis · May 2024 · Based on publicly available information")
+        st.markdown("---")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # STYLES
@@ -659,9 +718,8 @@ GEO_BADGE = {
 }
 
 SCOPE_LABELS = {
-    "semaglutide_depot": "Semaglutide depot only",
-    "all_lai": "All long-acting injectables (inc. non-depot)",
-    "full": "Full landscape (inc. implant & small molecule)",
+    "semaglutide_depot": "Semaglutide depot only (PLGA / Lipid)",
+    "full": "Full landscape — all LAI technologies",
 }
 
 def badge(text, css_class):
@@ -672,6 +730,9 @@ def tag_html(tag):
     return f'<span class="tag {css}">{tag}</span>'
 
 def filter_competitors(scope):
+    if scope == "full":
+        # full captures everything (old all_lai + full)
+        return [c for c in COMPETITORS if "all_lai" in c["scope"] or "full" in c["scope"]]
     return [c for c in COMPETITORS if scope in c["scope"]]
 
 def df_from_competitors(comps):
@@ -697,7 +758,7 @@ def df_from_competitors(comps):
 # ─────────────────────────────────────────────────────────────────────────────
 def render_landscape(comps):
     st.markdown("## 🏁 Screen 1 — Competitive Landscape")
-    st.markdown('<p class="sub">Development stage swim lane · all pipeline entrants in scope</p>', unsafe_allow_html=True)
+    st.markdown('<p class="sub">Development stage swim lane · use the sidebar to toggle between depot-only and full landscape views</p>', unsafe_allow_html=True)
 
     # summary metrics
     n = len(comps)
@@ -783,6 +844,9 @@ def render_landscape(comps):
 
     st.info("⬦ Diamond = Global player · ● Circle = Korean player · ★ = Baseline (Daewoong + Tionlab)")
 
+    # ── technology mechanism overview (collapsible) ────────────────────────
+    render_tech_image_panel(location="landscape")
+
     # ── dosing interval comparison ─────────────────────────────────────────
     st.markdown("### Dosing interval at a glance")
     dosing_comps = [c for c in comps if c["stage_order"] > 0]
@@ -801,6 +865,9 @@ def render_landscape(comps):
 def render_tier2(comps):
     st.markdown("## 🔬 Screen 2 — Formulation Deep-Dive (Depot Players Only)")
     st.markdown('<p class="sub">Applies only to encapsulation/depot technologies. Non-depot (molecular engineering, prodrug, implant) shown separately.</p>', unsafe_allow_html=True)
+
+    # ── technology mechanism overview image ─────────────────────────────────
+    render_tech_image_panel(location="deepdive")
 
     depot_cats = {"depot_plga", "depot_lipid", "depot_smol"}
     depot = [c for c in comps if c["tech_cat"] in depot_cats]
@@ -1124,58 +1191,415 @@ def render_pk(comps):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# LIVE SEARCH HELPERS
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Default keyword presets for semaglutide LAI competitive intelligence
+DEFAULT_KEYWORDS = [
+    "long acting injectable semaglutide",
+    "semaglutide monthly injection pipeline",
+    "Korea semaglutide long acting",
+    "GLP-1 depot formulation clinical trial",
+    "semaglutide PLGA microsphere",
+    "once monthly GLP-1 obesity pipeline",
+]
+
+def news_card_html(title, url, source, published, description="", color="#3b82f6", tag="Live Update"):
+    """Render a live-fetched news item in the same card style as static items."""
+    tag_css = TAG_CSS.get(tag, "t-company")
+    desc_html = f'<p style="margin:3px 0 2px; font-size:0.8rem; color:#475569;">{description[:200]}{"…" if len(description)>200 else ""}</p>' if description else ""
+    return f"""
+    <div style="border-left:4px solid {color}; padding:0.55rem 0.9rem;
+                margin:0.4rem 0; background:#fafafa; border-radius:0 6px 6px 0;">
+      <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:3px;">
+        <span class="tag {tag_css}">{tag}</span>
+        <span style="font-size:0.72rem; background:#e0f2fe; color:#0369a1; padding:1px 7px;
+               border-radius:3px; font-weight:600;">🔴 Live</span>
+        <span style="font-size:0.75rem; color:#94a3b8;">{published}</span>
+      </div>
+      <p style="margin:2px 0; font-size:0.85rem; color:#1e293b; font-weight:600;">{title}</p>
+      {desc_html}
+      <a href="{url}" target="_blank" style="font-size:0.75rem; color:#3b82f6; text-decoration:none;">
+        {source} ↗
+      </a>
+    </div>"""
+
+@st.cache_data(ttl=60 * 60 * 24 * 7, show_spinner=False)  # cache 7 days
+def fetch_gnews(keyword: str, max_results: int = 5):
+    """
+    Fetch from GNews API (free tier: 100 req/day, no key needed for basic queries).
+    Falls back gracefully if unavailable.
+    """
+    try:
+        url = "https://gnews.io/api/v4/search"
+        params = {
+            "q": keyword,
+            "lang": "en",
+            "country": "any",
+            "max": max_results,
+            "sortby": "publishedAt",
+            "apikey": "demo",          # replace with real key for production
+        }
+        r = requests.get(url, params=params, timeout=8)
+        if r.status_code == 200:
+            data = r.json()
+            articles = data.get("articles", [])
+            return [
+                {
+                    "title": a.get("title", ""),
+                    "url": a.get("url", "#"),
+                    "source": a.get("source", {}).get("name", "News"),
+                    "published": a.get("publishedAt", "")[:10],
+                    "description": a.get("description", ""),
+                }
+                for a in articles if a.get("title")
+            ]
+    except Exception:
+        pass
+    return []
+
+@st.cache_data(ttl=60 * 60 * 24 * 7, show_spinner=False)
+def fetch_pubmed(keyword: str, max_results: int = 5):
+    """
+    Fetch from PubMed E-utilities API (free, no key required).
+    Returns recent abstracts matching the keyword.
+    """
+    results = []
+    try:
+        search_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+        params = {
+            "db": "pubmed",
+            "term": keyword,
+            "retmax": max_results,
+            "sort": "date",
+            "retmode": "json",
+        }
+        r = requests.get(search_url, params=params, timeout=8)
+        if r.status_code != 200:
+            return results
+        ids = r.json().get("esearchresult", {}).get("idlist", [])
+        if not ids:
+            return results
+
+        # fetch summaries
+        summary_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
+        s = requests.get(summary_url, params={"db": "pubmed", "id": ",".join(ids), "retmode": "json"}, timeout=8)
+        if s.status_code != 200:
+            return results
+        uids = s.json().get("result", {}).get("uids", [])
+        result_data = s.json().get("result", {})
+        for uid in uids:
+            rec = result_data.get(uid, {})
+            title = rec.get("title", "")
+            pub_date = rec.get("pubdate", "")[:10]
+            source = rec.get("fulljournalname", rec.get("source", "PubMed"))
+            url = f"https://pubmed.ncbi.nlm.nih.gov/{uid}/"
+            if title:
+                results.append({
+                    "title": title,
+                    "url": url,
+                    "source": source,
+                    "published": pub_date,
+                    "description": "",
+                })
+    except Exception:
+        pass
+    return results
+
+@st.cache_data(ttl=60 * 60 * 24 * 7, show_spinner=False)
+def fetch_clinicaltrials(keyword: str, max_results: int = 5):
+    """Fetch from ClinicalTrials.gov v2 API (free, no key)."""
+    results = []
+    try:
+        url = "https://clinicaltrials.gov/api/v2/studies"
+        params = {
+            "query.term": keyword,
+            "pageSize": max_results,
+            "sort": "LastUpdatePostDate:desc",
+            "format": "json",
+        }
+        r = requests.get(url, params=params, timeout=10)
+        if r.status_code != 200:
+            return results
+        studies = r.json().get("studies", [])
+        for s in studies:
+            proto = s.get("protocolSection", {})
+            ident = proto.get("identificationModule", {})
+            status = proto.get("statusModule", {})
+            desc = proto.get("descriptionModule", {})
+            nct = ident.get("nctId", "")
+            title = ident.get("briefTitle", "")
+            phase = status.get("phases", [""])[0] if status.get("phases") else ""
+            overall_status = status.get("overallStatus", "")
+            sponsor = proto.get("sponsorCollaboratorsModule", {}).get("leadSponsor", {}).get("name", "")
+            last_update = status.get("lastUpdatePostDateStruct", {}).get("date", "")
+            brief_desc = desc.get("briefSummary", "")[:200]
+            if title and nct:
+                results.append({
+                    "title": f"[{phase or 'Study'}] {title} — {overall_status}",
+                    "url": f"https://clinicaltrials.gov/study/{nct}",
+                    "source": f"ClinicalTrials.gov · {sponsor}",
+                    "published": last_update,
+                    "description": brief_desc,
+                })
+    except Exception:
+        pass
+    return results
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # SCREEN 5 — INTELLIGENCE FEED
 # ─────────────────────────────────────────────────────────────────────────────
 def render_feed(comps):
     st.markdown("## 📡 Screen 5 — Strategic Intelligence Feed")
-    st.markdown('<p class="sub">All news items across all tracked competitors · newest first · filtered by tag or company</p>', unsafe_allow_html=True)
+    st.markdown('<p class="sub">Static curated items + live weekly search from PubMed, ClinicalTrials.gov, and news · newest first</p>', unsafe_allow_html=True)
 
-    all_news = []
-    for c in comps:
-        for item in c["news"]:
-            all_news.append({
-                "date": item["date"],
-                "company": c["company"],
-                "stage": c["stage"],
-                "headline": item["headline"],
-                "source": item["source"],
-                "url": item["url"],
-                "tag": item["tag"],
-                "tech_cat": c["tech_cat"],
-            })
-    all_news.sort(key=lambda x: x["date"], reverse=True)
+    # ── TAB layout ────────────────────────────────────────────────────────────
+    tab1, tab2 = st.tabs(["📋 Curated Intelligence", "🔍 Live Weekly Search"])
 
-    # filters
-    ff1, ff2 = st.columns(2)
-    with ff1:
-        all_tags = sorted(set(n["tag"] for n in all_news))
-        sel_tags = st.multiselect("Filter by type", all_tags, default=all_tags, key="feed_tag")
-    with ff2:
-        all_co = sorted(set(n["company"] for n in all_news))
-        sel_co = st.multiselect("Filter by company", all_co, default=all_co, key="feed_co")
+    # ══════════════════════════════════════════════════════════════════════════
+    # TAB 1 — STATIC CURATED FEED (original)
+    # ══════════════════════════════════════════════════════════════════════════
+    with tab1:
+        all_news = []
+        for c in comps:
+            for item in c["news"]:
+                all_news.append({
+                    "date": item["date"],
+                    "company": c["company"],
+                    "stage": c["stage"],
+                    "headline": item["headline"],
+                    "source": item["source"],
+                    "url": item["url"],
+                    "tag": item["tag"],
+                    "tech_cat": c["tech_cat"],
+                })
+        all_news.sort(key=lambda x: x["date"], reverse=True)
 
-    filtered_news = [n for n in all_news if n["tag"] in sel_tags and n["company"] in sel_co]
-    st.caption(f"{len(filtered_news)} items")
+        ff1, ff2 = st.columns(2)
+        with ff1:
+            all_tags = sorted(set(n["tag"] for n in all_news))
+            sel_tags = st.multiselect("Filter by type", all_tags, default=all_tags, key="feed_tag")
+        with ff2:
+            all_co = sorted(set(n["company"] for n in all_news))
+            sel_co = st.multiselect("Filter by company", all_co, default=all_co, key="feed_co")
 
-    for item in filtered_news:
-        tc = item["tech_cat"]
-        color = TECH_COLOR.get(tc, "#94a3b8")
-        tag_css = TAG_CSS.get(item["tag"], "t-company")
+        filtered_news = [n for n in all_news if n["tag"] in sel_tags and n["company"] in sel_co]
+        st.caption(f"{len(filtered_news)} curated items · manually verified from primary sources")
+
+        for item in filtered_news:
+            tc = item["tech_cat"]
+            color = TECH_COLOR.get(tc, "#94a3b8")
+            tag_css = TAG_CSS.get(item["tag"], "t-company")
+            st.markdown(
+                f"""<div style="border-left:4px solid {color}; padding:0.55rem 0.9rem;
+                               margin:0.4rem 0; background:#fafafa; border-radius:0 6px 6px 0;">
+                  <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:3px;">
+                    <span class="tag {tag_css}">{item['tag']}</span>
+                    <span style="font-weight:600; font-size:0.82rem;">{item['company']}</span>
+                    <span style="font-size:0.75rem; color:#94a3b8;">{item['date']}</span>
+                  </div>
+                  <p style="margin:2px 0; font-size:0.83rem; color:#1e293b;">{item['headline']}</p>
+                  <a href="{item['url']}" target="_blank" style="font-size:0.75rem; color:#3b82f6; text-decoration:none;">
+                    {item['source']} ↗
+                  </a>
+                </div>""",
+                unsafe_allow_html=True,
+            )
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # TAB 2 — LIVE WEEKLY SEARCH
+    # ══════════════════════════════════════════════════════════════════════════
+    with tab2:
+        st.markdown("### 🔍 Live Intelligence Search")
         st.markdown(
-            f"""<div style="border-left:4px solid {color}; padding:0.55rem 0.9rem;
-                           margin:0.4rem 0; background:#fafafa; border-radius:0 6px 6px 0;">
-              <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:3px;">
-                <span class="tag {tag_css}">{item['tag']}</span>
-                <span style="font-weight:600; font-size:0.82rem;">{item['company']}</span>
-                <span style="font-size:0.75rem; color:#94a3b8;">{item['date']}</span>
-              </div>
-              <p style="margin:2px 0; font-size:0.83rem; color:#1e293b;">{item['headline']}</p>
-              <a href="{item['url']}" target="_blank" style="font-size:0.75rem; color:#3b82f6; text-decoration:none;">
-                {item['source']} ↗
-              </a>
-            </div>""",
+            '<p class="sub">Pulls real-time results from PubMed (research), ClinicalTrials.gov (trials), '
+            'and news. Results cached for 7 days — click Refresh to force update.</p>',
             unsafe_allow_html=True,
         )
+
+        # ── keyword manager ──────────────────────────────────────────────────
+        st.markdown("#### Keyword presets")
+        st.caption("Pre-loaded keywords for semaglutide LAI competitive intelligence. Add or remove as needed.")
+
+        if "search_keywords" not in st.session_state:
+            st.session_state.search_keywords = DEFAULT_KEYWORDS.copy()
+
+        # display editable keyword chips
+        kw_cols = st.columns([3, 1])
+        with kw_cols[0]:
+            new_kw = st.text_input("Add a keyword", placeholder='e.g. "semaglutide PLGA Phase 2"', key="new_kw_input")
+        with kw_cols[1]:
+            st.markdown("<div style='margin-top:1.7rem;'>", unsafe_allow_html=True)
+            if st.button("➕ Add", key="add_kw"):
+                if new_kw.strip() and new_kw.strip() not in st.session_state.search_keywords:
+                    st.session_state.search_keywords.append(new_kw.strip())
+                    st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        # show active keywords with remove buttons
+        active_keywords = []
+        kw_display_cols = st.columns(3)
+        for i, kw in enumerate(st.session_state.search_keywords):
+            col = kw_display_cols[i % 3]
+            with col:
+                c1, c2 = st.columns([5, 1])
+                with c1:
+                    st.markdown(
+                        f'<div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:6px; '
+                        f'padding:4px 10px; font-size:0.78rem; color:#1e40af; margin-bottom:4px;">'
+                        f'🔎 {kw}</div>',
+                        unsafe_allow_html=True,
+                    )
+                with c2:
+                    if st.button("✕", key=f"rm_kw_{i}", help=f"Remove '{kw}'"):
+                        st.session_state.search_keywords.pop(i)
+                        st.rerun()
+            active_keywords.append(kw)
+
+        st.markdown("---")
+
+        # ── source selector ───────────────────────────────────────────────────
+        src_col1, src_col2, src_col3 = st.columns(3)
+        with src_col1:
+            use_pubmed = st.checkbox("📚 PubMed (research papers)", value=True, key="use_pubmed")
+        with src_col2:
+            use_ct = st.checkbox("🏥 ClinicalTrials.gov (trials)", value=True, key="use_ct")
+        with src_col3:
+            use_news = st.checkbox("📰 News (GNews API)", value=False, key="use_news",
+                                   help="Requires a GNews API key in the code. Free tier: gnews.io")
+
+        results_per_kw = st.slider("Results per keyword per source", 2, 10, 4, key="results_per_kw")
+
+        # ── search trigger ────────────────────────────────────────────────────
+        b1, b2 = st.columns([2, 1])
+        with b1:
+            run_search = st.button("🚀 Search Now", type="primary", key="run_live_search",
+                                   help="Results are cached for 7 days. Click Refresh to force new fetch.")
+        with b2:
+            if st.button("🔄 Refresh Cache", key="clear_cache_btn"):
+                fetch_pubmed.clear()
+                fetch_clinicaltrials.clear()
+                fetch_gnews.clear()
+                st.success("Cache cleared — next search will pull fresh data.")
+
+        # ── last fetched timestamp ────────────────────────────────────────────
+        if "last_fetched" in st.session_state:
+            st.caption(f"Last fetched: {st.session_state.last_fetched}")
+
+        # ── run search ────────────────────────────────────────────────────────
+        if run_search or ("live_results" in st.session_state and st.session_state.live_results):
+            if run_search:
+                # force new fetch by running (cache handles dedup automatically)
+                all_live = []
+                progress = st.progress(0, text="Fetching data…")
+                total_steps = len(active_keywords) * ((1 if use_pubmed else 0) + (1 if use_ct else 0) + (1 if use_news else 0))
+                step = 0
+
+                for kw in active_keywords:
+                    if use_pubmed:
+                        items = fetch_pubmed(kw, results_per_kw)
+                        for item in items:
+                            item["keyword"] = kw
+                            item["source_type"] = "pubmed"
+                        all_live.extend(items)
+                        step += 1
+                        progress.progress(step / max(total_steps, 1), text=f"PubMed: {kw[:40]}…")
+
+                    if use_ct:
+                        items = fetch_clinicaltrials(kw, results_per_kw)
+                        for item in items:
+                            item["keyword"] = kw
+                            item["source_type"] = "clinicaltrials"
+                        all_live.extend(items)
+                        step += 1
+                        progress.progress(step / max(total_steps, 1), text=f"ClinicalTrials: {kw[:35]}…")
+
+                    if use_news:
+                        items = fetch_gnews(kw, results_per_kw)
+                        for item in items:
+                            item["keyword"] = kw
+                            item["source_type"] = "news"
+                        all_live.extend(items)
+                        step += 1
+                        progress.progress(step / max(total_steps, 1), text=f"News: {kw[:45]}…")
+
+                progress.empty()
+
+                # deduplicate by URL
+                seen_urls = set()
+                deduped = []
+                for item in all_live:
+                    if item["url"] not in seen_urls:
+                        seen_urls.add(item["url"])
+                        deduped.append(item)
+
+                # sort by date desc
+                deduped.sort(key=lambda x: x.get("published", ""), reverse=True)
+
+                st.session_state.live_results = deduped
+                st.session_state.last_fetched = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+
+            # ── display results ───────────────────────────────────────────────
+            live_results = st.session_state.get("live_results", [])
+            if not live_results:
+                st.warning("No results returned. Check your keywords or API availability.")
+            else:
+                # filter controls
+                rf1, rf2 = st.columns(2)
+                with rf1:
+                    source_type_opts = sorted(set(r.get("source_type", "other") for r in live_results))
+                    src_label_map = {"pubmed": "📚 PubMed", "clinicaltrials": "🏥 ClinicalTrials", "news": "📰 News"}
+                    sel_src = st.multiselect(
+                        "Filter by source",
+                        source_type_opts,
+                        default=source_type_opts,
+                        format_func=lambda x: src_label_map.get(x, x),
+                        key="live_src_filter",
+                    )
+                with rf2:
+                    kw_opts = sorted(set(r.get("keyword", "") for r in live_results))
+                    sel_kws = st.multiselect("Filter by keyword", kw_opts, default=kw_opts, key="live_kw_filter")
+
+                filtered_live = [r for r in live_results
+                                 if r.get("source_type") in sel_src and r.get("keyword") in sel_kws]
+
+                st.caption(f"Showing {len(filtered_live)} of {len(live_results)} live results · deduplicated across all keywords")
+
+                # source type → color and tag
+                src_color = {"pubmed": "#8b5cf6", "clinicaltrials": "#22c55e", "news": "#f59e0b"}
+                src_tag   = {"pubmed": "Research", "clinicaltrials": "Clinical Trial", "news": "News"}
+
+                for item in filtered_live:
+                    stype = item.get("source_type", "other")
+                    color = src_color.get(stype, "#94a3b8")
+                    tag = src_tag.get(stype, "Live Update")
+                    st.markdown(
+                        news_card_html(
+                            title=item["title"],
+                            url=item["url"],
+                            source=item["source"],
+                            published=item.get("published", ""),
+                            description=item.get("description", ""),
+                            color=color,
+                            tag=tag,
+                        ),
+                        unsafe_allow_html=True,
+                    )
+
+                # ── export ────────────────────────────────────────────────────
+                if filtered_live:
+                    df_export = pd.DataFrame(filtered_live)[["published", "title", "source", "url", "keyword", "source_type"]]
+                    csv = df_export.to_csv(index=False).encode("utf-8")
+                    st.download_button(
+                        "⬇️ Download results as CSV",
+                        data=csv,
+                        file_name=f"semaglutide_intel_{datetime.datetime.now().strftime('%Y%m%d')}.csv",
+                        mime="text/csv",
+                        key="dl_live_csv",
+                    )
+        else:
+            st.info("👆 Click **Search Now** to pull the latest data from PubMed, ClinicalTrials.gov, and (optionally) News. Results are cached for 7 days.")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1188,9 +1612,9 @@ def main():
         st.markdown("**Last updated:** June 2026")
         st.markdown("---")
 
-        st.markdown("#### 🔭 Scope")
+        st.markdown("#### 🔭 Competitive Scope")
         scope = st.radio(
-            "Competitive scope",
+            "Show competitors",
             options=list(SCOPE_LABELS.keys()),
             format_func=lambda x: SCOPE_LABELS[x],
             index=0,
