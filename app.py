@@ -754,109 +754,351 @@ def df_from_competitors(comps):
     return pd.DataFrame(rows)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SCREEN 1 — LANDSCAPE ("THE RACE")
+# SCREEN 1 — LANDSCAPE (REDESIGNED DASHBOARD)
 # ─────────────────────────────────────────────────────────────────────────────
 def render_landscape(comps):
-    st.markdown("## 🏁 Screen 1 — Competitive Landscape")
-    st.markdown('<p class="sub">Development stage swim lane · use the sidebar to toggle between depot-only and full landscape views</p>', unsafe_allow_html=True)
+    # ── derived metrics ────────────────────────────────────────────────────
+    baseline = next((c for c in comps if c.get("is_baseline")), None)
+    competitors = [c for c in comps if not c.get("is_baseline")]
+    n_total = len(comps)
+    n_human = sum(1 for c in comps if c["pk_maturity"] >= 2)
+    n_korean = sum(1 for c in comps if "Korean" in c["geography"])
+    n_global = n_total - n_korean
+    top_rival = max(competitors, key=lambda c: c["stage_order"], default=None)
 
-    # summary metrics
-    n = len(comps)
-    n_human   = sum(1 for c in comps if c["pk_maturity"] >= 2)
-    n_korean  = sum(1 for c in comps if "Korean" in c["geography"])
-    n_global  = sum(1 for c in comps if "Global" in c["geography"])
-    n_ph3     = sum(1 for c in comps if c["stage_order"] >= 5)
+    # recent alerts = news items dated 2026 across all competitors
+    all_news = []
+    for c in comps:
+        for n in c.get("news", []):
+            all_news.append({**n, "company": c["company"], "tech_cat": c["tech_cat"], "is_baseline": c.get("is_baseline", False)})
+    all_news.sort(key=lambda x: x.get("date", ""), reverse=True)
+    recent_news = [n for n in all_news if n.get("date", "")[:4] >= "2026"]
+    alert_count = len(recent_news)
 
-    col1, col2, col3, col4, col5 = st.columns(5)
-    for col, num, label in zip(
-        [col1, col2, col3, col4, col5],
-        [n, n_human, n_korean, n_global, n_ph3],
-        ["Total tracked", "Have human data", "Korean players", "Global players", "Phase 3+"],
-    ):
-        col.markdown(f'<div class="metric-box"><div class="metric-num">{num}</div><div class="metric-lbl">{label}</div></div>', unsafe_allow_html=True)
+    # ── top bar ────────────────────────────────────────────────────────────
+    st.markdown(f"""
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:1.2rem; flex-wrap:wrap; gap:8px;">
+      <div>
+        <h1 style="font-size:1.4rem; font-weight:700; margin:0; color:#0f172a;">
+          Semaglutide LAI · Competitor Intelligence
+        </h1>
+        <p class="sub" style="margin-top:4px;">
+          GLP-1RA &amp; Amylin-class long-acting injectable landscape · June 2026 · {n_total} programs tracked
+        </p>
+      </div>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <span style="background:#dcfce7; color:#166534; font-size:0.75rem; padding:4px 12px; border-radius:20px; font-weight:600;">
+          ★ Quject®Sphere — our program
+        </span>
+        <span style="background:#fef3c7; color:#92400e; font-size:0.75rem; padding:4px 12px; border-radius:20px; font-weight:600;">
+          🔔 {alert_count} updates in 2026
+        </span>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-    st.markdown("---")
+    # ── five metric cards ──────────────────────────────────────────────────
+    our_stage = baseline["stage"] if baseline else "—"
+    top_rival_name = top_rival["company"].split("/")[0].strip() if top_rival else "—"
+    top_rival_stage = top_rival["stage"] if top_rival else "—"
 
-    # ── swim lane ──────────────────────────────────────────────────────────
-    stage_labels = {0: "Unknown", 1: "Preclinical", 2: "IND Filed", 3: "Phase 1", 4: "Phase 2", 5: "Phase 3", 6: "NDA", 7: "Approved"}
-    stage_positions = {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7}
+    c1, c2, c3, c4, c5 = st.columns(5)
+    metrics = [
+        (str(n_total), "Programs tracked", f"1 ours · {n_total - 1} competitors"),
+        (str(n_human), "Have human data", "pk_maturity ≥ phase 1"),
+        (str(n_korean), "Korean players", f"{n_global} global / mixed"),
+        (top_rival_name, "Most advanced rival", top_rival_stage),
+        (our_stage, "Our stage", "Quject®Sphere / CURE®"),
+    ]
+    for col, (num, label, sub) in zip([c1, c2, c3, c4, c5], metrics):
+        col.markdown(
+            f'<div class="metric-box">'
+            f'<div class="metric-num" style="font-size:1.3rem;">{num}</div>'
+            f'<div class="metric-lbl">{label}</div>'
+            f'<div style="font-size:0.7rem; color:#94a3b8; margin-top:3px;">{sub}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
 
-    # sort by stage desc, then geography (Korean first)
-    sorted_comps = sorted(comps, key=lambda c: (-c["stage_order"], c["geography"]))
+    st.markdown("<div style='margin-bottom:1rem;'></div>", unsafe_allow_html=True)
 
-    fig = go.Figure()
-    for c in sorted_comps:
-        tc = c["tech_cat"]
-        color = TECH_COLOR.get(tc, "#94a3b8")
-        x_pos = stage_positions.get(c["stage_order"], 0)
-        label = c["company"]
+    # ── race chart ─────────────────────────────────────────────────────────
+    st.markdown("### 🏁 The race — development stage across all programs")
+    st.markdown('<p class="sub">Sorted by advancement · bar length proportional to stage · hover for details</p>', unsafe_allow_html=True)
+
+    # sort descending by stage_order; baseline always shown in its true position
+    sorted_comps = sorted(comps, key=lambda c: (-c["stage_order"], 0 if c.get("is_baseline") else 1))
+    max_stage = max((c["stage_order"] for c in comps), default=1) or 1
+
+    BAR_COLORS = {
+        "baseline": "#1D9E75",
+        "ph2plus":  "#7F77DD",
+        "ph1":      "#378ADD",
+        "ind":      "#EF9F27",
+        "pre":      "#B4B2A9",
+    }
+
+    def bar_color(c):
         if c.get("is_baseline"):
-            label += " ★"
-        symbol = "circle" if "Global" not in c["geography"] else "diamond"
-        fig.add_trace(go.Scatter(
-            x=[x_pos], y=[label],
-            mode="markers+text",
-            marker=dict(size=22, color=color, symbol=symbol,
-                        line=dict(width=2, color="white")),
-            text=[c["product"].split("/")[0].strip()],
-            textposition="middle right",
-            textfont=dict(size=10, color="#374151"),
-            name=TECH_BADGE.get(tc, ("", tc))[1],
-            hovertemplate=(
-                f"<b>{c['company']}</b><br>"
-                f"Product: {c['product']}<br>"
-                f"Stage: {c['stage']}<br>"
-                f"Dosing: {c['dosing']}<br>"
-                f"Mechanism: {c['mechanism']}<br>"
-                f"Geography: {c['geography']}"
-                "<extra></extra>"
-            ),
-            showlegend=False,
+            return BAR_COLORS["baseline"]
+        so = c["stage_order"]
+        if so >= 4: return BAR_COLORS["ph2plus"]
+        if so == 3: return BAR_COLORS["ph1"]
+        if so == 2: return BAR_COLORS["ind"]
+        return BAR_COLORS["pre"]
+
+    def row_label(c):
+        if c.get("is_baseline"):
+            return "Quject®Sphere (Daewoong + Tionlab) ★"
+        return c["company"]
+
+    labels = [row_label(c) for c in sorted_comps]
+    bar_vals = [max(c["stage_order"] / max_stage, 0.04) for c in sorted_comps]
+    colors = [bar_color(c) for c in sorted_comps]
+    pk_texts = [
+        (c["pk_desc"][:65] + "…" if len(c.get("pk_desc", "")) > 65 else c.get("pk_desc", "—"))
+        for c in sorted_comps
+    ]
+    hover_texts = [
+        f"<b>{row_label(c)}</b><br>"
+        f"Product: {c['product']}<br>"
+        f"Stage: {c['stage']}<br>"
+        f"Tech: {c['tech_type']}<br>"
+        f"Dosing: {c['dosing']}<br>"
+        f"PK: {c['pk_desc']}"
+        for c in sorted_comps
+    ]
+
+    fig_race = go.Figure()
+    fig_race.add_trace(go.Bar(
+        x=bar_vals,
+        y=labels,
+        orientation="h",
+        marker_color=colors,
+        text=pk_texts,
+        textposition="inside",
+        insidetextanchor="start",
+        textfont=dict(size=10, color="white"),
+        hovertext=hover_texts,
+        hoverinfo="text",
+        cliponaxis=False,
+    ))
+
+    # legend annotations
+    legend_items = [
+        ("Our program", BAR_COLORS["baseline"]),
+        ("Phase 2+", BAR_COLORS["ph2plus"]),
+        ("Phase 1", BAR_COLORS["ph1"]),
+        ("IND filed", BAR_COLORS["ind"]),
+        ("Preclinical", BAR_COLORS["pre"]),
+    ]
+    annotations = []
+    for i, (lbl, col) in enumerate(legend_items):
+        annotations.append(dict(
+            x=0.02 + i * 0.19, y=1.06,
+            xref="paper", yref="paper",
+            text=f"<span style='color:{col}'>■</span> {lbl}",
+            showarrow=False,
+            font=dict(size=11),
         ))
 
-    # legend traces
-    for tc, color in TECH_COLOR.items():
-        if any(c["tech_cat"] == tc for c in comps):
-            lbl = TECH_BADGE.get(tc, ("", tc))[1]
-            fig.add_trace(go.Scatter(
-                x=[None], y=[None],
-                mode="markers",
-                marker=dict(size=12, color=color),
-                name=lbl,
-            ))
-
-    fig.update_layout(
-        height=max(380, len(sorted_comps) * 45),
-        xaxis=dict(
-            tickvals=list(stage_positions.values()),
-            ticktext=[stage_labels[k] for k in sorted(stage_positions)],
-            title="Development stage", gridcolor="#f1f5f9",
-            range=[-0.5, 7.5],
-        ),
-        yaxis=dict(title="", automargin=True, gridcolor="#f1f5f9"),
-        plot_bgcolor="white", paper_bgcolor="white",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0,
-                    title_text="Technology type:"),
-        margin=dict(l=10, r=200, t=50, b=40),
-        font=dict(family="Inter, sans-serif", size=12),
+    fig_race.update_layout(
+        height=max(420, len(sorted_comps) * 38 + 80),
+        xaxis=dict(visible=False, range=[0, 1.02]),
+        yaxis=dict(automargin=True, tickfont=dict(size=11)),
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        margin=dict(l=10, r=20, t=60, b=20),
+        font=dict(family="Inter, sans-serif", size=11),
+        annotations=annotations,
+        bargap=0.35,
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig_race, use_container_width=True)
 
-    st.info("⬦ Diamond = Global player · ● Circle = Korean player · ★ = Baseline (Daewoong + Tionlab)")
+    st.markdown("<div style='margin-bottom:0.5rem;'></div>", unsafe_allow_html=True)
 
-    # ── technology mechanism overview (collapsible) ────────────────────────
-    render_tech_image_panel(location="landscape")
+    # ── two-column section: technology + evidence ──────────────────────────
+    col_left, col_right = st.columns(2)
 
-    # ── dosing interval comparison ─────────────────────────────────────────
-    st.markdown("### Dosing interval at a glance")
-    dosing_comps = [c for c in comps if c["stage_order"] > 0]
-    dosing_data = {
-        "Company": [c["company"] for c in dosing_comps],
-        "Dosing": [c["dosing"] for c in dosing_comps],
-        "Confirmed": ["✓" if c["dosing_confirmed"] else "Target" for c in dosing_comps],
-        "Stage": [c["stage"] for c in dosing_comps],
-    }
-    st.dataframe(pd.DataFrame(dosing_data), use_container_width=True, hide_index=True)
+    with col_left:
+        st.markdown("### Technology landscape")
+        st.markdown('<p class="sub">Programs by platform type and geography</p>', unsafe_allow_html=True)
+
+        # count by tech_cat
+        from collections import Counter
+        tech_counts = Counter(c["tech_cat"] for c in comps)
+        tech_order = ["depot_plga", "depot_lipid", "depot_smol", "molecular_eng", "prodrug", "implant", "unknown"]
+        for tc in tech_order:
+            count = tech_counts.get(tc, 0)
+            if count == 0:
+                continue
+            badge_cls, badge_lbl = TECH_BADGE.get(tc, ("b-unknown", tc))
+            color = TECH_COLOR.get(tc, "#94a3b8")
+            companies_in = [c["company"].split("/")[0].strip() for c in comps if c["tech_cat"] == tc]
+            pct = int(count / n_total * 100)
+            st.markdown(
+                f'<div style="margin-bottom:10px;">'
+                f'<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:3px;">'
+                f'<span class="badge {badge_cls}">{badge_lbl}</span>'
+                f'<span style="font-size:0.75rem; color:#64748b;">{count} program{"s" if count > 1 else ""}</span>'
+                f'</div>'
+                f'<div style="background:#f1f5f9; border-radius:4px; height:8px; overflow:hidden;">'
+                f'<div style="background:{color}; width:{pct}%; height:100%; border-radius:4px;"></div>'
+                f'</div>'
+                f'<div style="font-size:0.68rem; color:#94a3b8; margin-top:2px;">{" · ".join(companies_in[:4])}{"…" if len(companies_in) > 4 else ""}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+        # geography split
+        st.markdown(
+            f'<div style="margin-top:12px; padding:10px 12px; background:#f8fafc; border-radius:8px;">'
+            f'<div style="font-size:0.72rem; color:#64748b; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:6px;">Geography split</div>'
+            f'<div style="display:flex; gap:4px; border-radius:4px; overflow:hidden; height:10px;">'
+            f'<div style="flex:{n_korean}; background:#dbeafe;" title="{n_korean} Korean"></div>'
+            f'<div style="flex:{n_global}; background:#dcfce7;" title="{n_global} Global"></div>'
+            f'</div>'
+            f'<div style="display:flex; gap:16px; margin-top:5px; font-size:0.72rem; color:#64748b;">'
+            f'<span>🇰🇷 {n_korean} Korean</span><span>🌐 {n_global} Global / mixed</span>'
+            f'</div></div>',
+            unsafe_allow_html=True,
+        )
+
+    with col_right:
+        st.markdown("### Evidence maturity")
+        st.markdown('<p class="sub">PK data depth — how much do we know about each program?</p>', unsafe_allow_html=True)
+
+        ev_sorted = sorted(comps, key=lambda c: (-c["pk_maturity"], 0 if c.get("is_baseline") else 1))
+        pk_badge_colors = ["#f1f5f9", "#dbeafe", "#ede9fe", "#dcfce7", "#166534"]
+        pk_text_colors  = ["#94a3b8", "#1e40af", "#5b21b6", "#166534", "#ffffff"]
+
+        for c in ev_sorted:
+            mat = c["pk_maturity"]
+            lbl = PK_LABELS[mat] if mat < len(PK_LABELS) else "—"
+            bg  = pk_badge_colors[mat]
+            tc  = pk_text_colors[mat]
+            name = "Quject®Sphere ★" if c.get("is_baseline") else c["company"].split("/")[0].strip()
+            name_color = "#166534" if c.get("is_baseline") else "#0f172a"
+            pk_short = c["pk_desc"][:70] + "…" if len(c.get("pk_desc", "")) > 70 else c.get("pk_desc", "—")
+            st.markdown(
+                f'<div style="display:flex; align-items:flex-start; gap:10px; padding:7px 0; border-bottom:1px solid #f1f5f9;">'
+                f'<div style="flex:1; min-width:0;">'
+                f'<div style="font-size:0.8rem; font-weight:600; color:{name_color}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{name}</div>'
+                f'<div style="font-size:0.68rem; color:#94a3b8; margin-top:1px;">{pk_short}</div>'
+                f'</div>'
+                f'<span style="background:{bg}; color:{tc}; font-size:0.68rem; padding:2px 8px; border-radius:10px; white-space:nowrap; flex-shrink:0; font-weight:600;">{lbl}</span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+    st.markdown("<div style='margin-bottom:0.5rem;'></div>", unsafe_allow_html=True)
+
+    # ── two-column section: differentiator table + news feed ──────────────
+    col_a, col_b = st.columns(2)
+
+    with col_a:
+        st.markdown("### Key differentiators")
+        st.markdown('<p class="sub">Programs with human data only (pk_maturity ≥ 2)</p>', unsafe_allow_html=True)
+
+        human_comps = sorted(
+            [c for c in comps if c["pk_maturity"] >= 2],
+            key=lambda c: (-c["pk_maturity"], 0 if c.get("is_baseline") else 1),
+        )
+
+        # table header
+        th_style = "padding:6px 8px; font-size:0.72rem; color:#64748b; font-weight:600; text-align:left; border-bottom:2px solid #e2e8f0; white-space:nowrap;"
+        td_style = "padding:6px 8px; font-size:0.75rem; border-bottom:1px solid #f1f5f9; vertical-align:top;"
+        td_style_our = "padding:6px 8px; font-size:0.75rem; border-bottom:1px solid #f1f5f9; vertical-align:top; background:#f0fdf4;"
+
+        table = f'<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse;">'
+        table += f'<thead><tr><th style="{th_style}">Program</th><th style="{th_style}">Dosing</th><th style="{th_style}">Titration?</th><th style="{th_style}">Needle</th></tr></thead><tbody>'
+
+        for c in human_comps:
+            is_ours = c.get("is_baseline")
+            td = td_style_our if is_ours else td_style
+            name = "Quject®Sphere ★" if is_ours else c["company"].split("/")[0].strip()
+            name_col = "#166534" if is_ours else "#0f172a"
+            titration = c.get("titration", "—")
+            tit_ev = c.get("titration_ev", "none")
+            ev_label = {"confirmed": "✓", "claim": "○", "inferred": "~", "none": "—", "na": "N/A"}.get(tit_ev, "—")
+            ev_col = {"confirmed": "#16a34a", "claim": "#d97706", "inferred": "#0891b2"}.get(tit_ev, "#94a3b8")
+            needle = c.get("needle_gauge", "—")
+            dosing = c.get("dosing", "—")
+            # extract t½ hint from pk_desc
+            pk = c.get("pk_desc", "")
+            t_half = "—"
+            if "t½" in pk or "t1/2" in pk.lower():
+                for part in pk.replace(",", " ").split():
+                    if "day" in part.lower() or "d" == part[-1:].lower():
+                        t_half = part
+                        break
+            table += (
+                f'<tr>'
+                f'<td style="{td} font-weight:600; color:{name_col};">{name}</td>'
+                f'<td style="{td}">{dosing}</td>'
+                f'<td style="{td}"><span style="color:{ev_col}; font-weight:600;">{ev_label}</span> {titration}</td>'
+                f'<td style="{td}">{needle}</td>'
+                f'</tr>'
+            )
+
+        table += "</tbody></table></div>"
+        st.markdown(table, unsafe_allow_html=True)
+
+    with col_b:
+        st.markdown("### Latest intelligence")
+        st.markdown('<p class="sub">Most recent updates across all programs</p>', unsafe_allow_html=True)
+
+        feed_items = all_news[:8]
+        for item in feed_items:
+            tc = item.get("tech_cat", "unknown")
+            dot_color = "#1D9E75" if item.get("is_baseline") else TECH_COLOR.get(tc, "#94a3b8")
+            tag = item.get("tag", "Update")
+            tag_css = TAG_CSS.get(tag, "t-company")
+            headline = item["headline"][:90] + "…" if len(item["headline"]) > 90 else item["headline"]
+            company_short = item["company"].split("/")[0].strip()
+            if item.get("is_baseline"):
+                company_short = "Quject®Sphere ★"
+            url = item.get("url", "#")
+            st.markdown(
+                f'<div style="display:flex; gap:8px; padding:8px 0; border-bottom:1px solid #f1f5f9;">'
+                f'<div style="width:7px; height:7px; border-radius:50%; background:{dot_color}; margin-top:5px; flex-shrink:0;"></div>'
+                f'<div style="flex:1; min-width:0;">'
+                f'<div style="font-size:0.78rem; color:#0f172a; line-height:1.4;">'
+                f'<a href="{url}" target="_blank" style="color:#0f172a; text-decoration:none;">{headline}</a>'
+                f'</div>'
+                f'<div style="font-size:0.68rem; color:#94a3b8; margin-top:2px;">'
+                f'{company_short} · {item.get("source", "")} · {item.get("date", "")} '
+                f'<span class="tag {tag_css}">{tag}</span>'
+                f'</div>'
+                f'</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+    st.markdown("<div style='margin-bottom:1rem;'></div>", unsafe_allow_html=True)
+
+    # ── export row ─────────────────────────────────────────────────────────
+    df_export = pd.DataFrame([{
+        "Company": c["company"], "Product": c["product"],
+        "Stage": c["stage"], "Tech Type": c["tech_type"],
+        "Mechanism": c["mechanism"], "Dosing": c["dosing"],
+        "Geography": c["geography"], "PK Maturity": PK_LABELS[c["pk_maturity"]],
+        "PK Description": c["pk_desc"], "Efficacy": c["efficacy"],
+        "Partnership": c["partnership"],
+    } for c in comps])
+    csv_bytes = df_export.to_csv(index=False).encode("utf-8")
+
+    exp1, exp2, exp3 = st.columns([1, 1, 4])
+    with exp1:
+        st.download_button(
+            "⬇️ Export CSV",
+            data=csv_bytes,
+            file_name=f"semaglutide_landscape_{datetime.datetime.now().strftime('%Y%m%d')}.csv",
+            mime="text/csv",
+            key="dl_landscape_csv",
+        )
+    with exp2:
+        render_tech_image_panel(location="landscape")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -889,7 +1131,7 @@ def render_tier2(comps):
 
     # build table rows
     FIELDS = [
-        ("Formulation type", "tech_type", "tech_type"),
+        ("Formulation type", "tech_type", None),
         ("Needle gauge", "needle_gauge", "needle_ev"),
         ("Organic solvent use", "organic_solvent", "solvent_ev"),
         ("Reconstitution required", "reconstitution", "recon_ev"),
@@ -907,8 +1149,6 @@ def render_tier2(comps):
     ]
 
     company_names = [c["company"] for c in depot]
-    header = "| Category | " + " | ".join(company_names) + " |"
-    sep = "|---|" + "---|" * len(depot)
 
     table_html = f"""
     <div style="overflow-x:auto;">
@@ -1612,18 +1852,9 @@ def main():
         st.markdown("**Last updated:** June 2026")
         st.markdown("---")
 
-        st.markdown("#### 🔭 Competitive Scope")
-        scope = st.radio(
-            "Show competitors",
-            options=list(SCOPE_LABELS.keys()),
-            format_func=lambda x: SCOPE_LABELS[x],
-            index=0,
-            key="scope",
-        )
-        comps = filter_competitors(scope)
-
+        comps = [c for c in COMPETITORS if "all_lai" in c["scope"] or "full" in c["scope"]]
         st.markdown(
-            f'<div class="scope-note">Showing <b>{len(comps)}</b> competitors in scope.</div>',
+            f'<div class="scope-note">Full landscape · <b>{len(comps)}</b> programs tracked</div>',
             unsafe_allow_html=True,
         )
 
