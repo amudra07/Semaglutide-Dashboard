@@ -870,7 +870,8 @@ def render_tier2(comps):
     render_tech_image_panel(location="deepdive")
 
     depot_cats = {"depot_plga", "depot_lipid", "depot_smol"}
-    depot = [c for c in comps if c["tech_cat"] in depot_cats]
+    # Exclude the baseline entry (Daewoong + Tionlab) from the deep-dive comparison table
+    depot = [c for c in comps if c["tech_cat"] in depot_cats and not c.get("is_baseline")]
     non_depot = [c for c in comps if c["tech_cat"] not in depot_cats and c["tech_cat"] != "unknown"]
 
     if not depot:
